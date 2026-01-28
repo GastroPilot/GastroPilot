@@ -1,8 +1,0 @@
-[submodule "gastropilot-frontend"]
-	path = gastropilot-frontend
-	url = https://github.com/GastroPilot/gastropilot-frontend.git
-	branch = main
-[submodule "gastropilot-backend"]
-	path = gastropilot-backend
-	url = https://github.com/GastroPilot/gastropilot-backend.git
-	branch = main
