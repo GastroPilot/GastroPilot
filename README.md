@@ -22,7 +22,7 @@ It is developed and distributed under a commercial license and is not free and n
 
 Use of this software is subject to a separate commercial license agreement. Unauthorized use, distribution, or modification is prohibited.
 
-Usage, redistribution, and modification are subject to the terms defined by the licensor. The authors of GastroPilot are mentioned in the [AUTHORS FILE](AUTHORS)
+Usage, redistribution, and modification are subject to the terms defined by the licensor. The authors of GastroPilot are mentioned in the [AUTHORS FILE](AUTHORS.md)
 
 For more information, documentation, and access options, see
 https://gastropilot.org
