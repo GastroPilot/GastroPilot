@@ -1,0 +1,325 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_bump:
+        description: 'Version bump type'
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      deploy_to_production:
+        description: 'Deploy to production after release?'
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    outputs:
+      new_version: ${{ steps.bump.outputs.new_version }}
+      release_tag: ${{ steps.bump.outputs.release_tag }}
+    steps:
+      - name: Checkout code with submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Get current version
+        id: current
+        run: |
+          if [ -f VERSION ]; then
+            CURRENT_VERSION=$(cat VERSION)
+          else
+            CURRENT_VERSION="0.0.0"
+          fi
+          echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          echo "Current version: $CURRENT_VERSION"
+
+      - name: Calculate new version
+        id: bump
+        run: |
+          CURRENT="${{ steps.current.outputs.version }}"
+          BUMP_TYPE="${{ github.event.inputs.version_bump }}"
+
+          # Parse version
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+
+          case $BUMP_TYPE in
+            major)
+              MAJOR=$((MAJOR + 1))
+              MINOR=0
+              PATCH=0
+              ;;
+            minor)
+              MINOR=$((MINOR + 1))
+              PATCH=0
+              ;;
+            patch)
+              PATCH=$((PATCH + 1))
+              ;;
+          esac
+
+          NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "release_tag=v$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "New version: $NEW_VERSION"
+
+      - name: Update VERSION file
+        run: |
+          echo "${{ steps.bump.outputs.new_version }}" > VERSION
+          git add VERSION
+
+      - name: Update submodule VERSION files
+        run: |
+          # Update frontend VERSION
+          if [ -d "gastropilot-frontend" ]; then
+            echo "${{ steps.bump.outputs.new_version }}" > gastropilot-frontend/VERSION 2>/dev/null || true
+          fi
+
+          # Update backend VERSION
+          if [ -d "gastropilot-backend" ]; then
+            echo "${{ steps.bump.outputs.new_version }}" > gastropilot-backend/VERSION 2>/dev/null || true
+          fi
+
+      - name: Generate changelog entry
+        id: changelog
+        run: |
+          NEW_VERSION="${{ steps.bump.outputs.new_version }}"
+          RELEASE_DATE=$(date +%Y-%m-%d)
+
+          # Get commits since last tag
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+
+          if [ -n "$LAST_TAG" ]; then
+            COMMITS=$(git log ${LAST_TAG}..HEAD --pretty=format:"- %s (%h)" --no-merges | head -50)
+          else
+            COMMITS=$(git log --pretty=format:"- %s (%h)" --no-merges | head -50)
+          fi
+
+          # Create changelog entry
+          ENTRY="## [${NEW_VERSION}] - ${RELEASE_DATE}
+
+          ### Changes
+          ${COMMITS}
+
+          "
+
+          # Prepend to CHANGELOG.md
+          if [ -f CHANGELOG.md ]; then
+            # Read existing content, skip the header
+            EXISTING=$(tail -n +3 CHANGELOG.md)
+            echo "# Changelog
+
+          ${ENTRY}
+          ${EXISTING}" > CHANGELOG.md
+          else
+            echo "# Changelog
+
+          ${ENTRY}" > CHANGELOG.md
+          fi
+
+          git add CHANGELOG.md
+
+          # Save for release notes
+          echo "RELEASE_NOTES<<EOF" >> $GITHUB_OUTPUT
+          echo "${ENTRY}" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Commit version bump
+        run: |
+          git commit -m "chore(release): ${{ steps.bump.outputs.new_version }}"
+          git push
+
+      - name: Create and push tag
+        run: |
+          git tag -a "${{ steps.bump.outputs.release_tag }}" -m "Release ${{ steps.bump.outputs.new_version }}"
+          git push origin "${{ steps.bump.outputs.release_tag }}"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.bump.outputs.release_tag }}
+          name: Release ${{ steps.bump.outputs.new_version }}
+          body: ${{ steps.changelog.outputs.RELEASE_NOTES }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-and-tag:
+    name: Build & Tag Release Images
+    runs-on: ubuntu-latest
+    needs: release
+    steps:
+      - name: Checkout code with submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          ref: ${{ needs.release.outputs.release_tag }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Frontend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./gastropilot-frontend
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/gastropilot/gastropilot-frontend:${{ needs.release.outputs.release_tag }}
+            ${{ env.REGISTRY }}/gastropilot/gastropilot-frontend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            NEXT_PUBLIC_APP_VERSION=${{ needs.release.outputs.new_version }}
+
+      - name: Build and push Backend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./gastropilot-backend
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/gastropilot/gastropilot-backend:${{ needs.release.outputs.release_tag }}
+            ${{ env.REGISTRY }}/gastropilot/gastropilot-backend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [release, build-and-tag]
+    if: github.event.inputs.deploy_to_production == 'true'
+    environment:
+      name: production
+      url: https://gpilot.app
+    steps:
+      - name: Deploy to Production Server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+            echo "=== Deploying Release ${{ needs.release.outputs.release_tag }} to Production ==="
+
+            cd /opt/gastropilot/production
+
+            # Login to GitHub Container Registry
+            echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u duhrkah --password-stdin
+
+            # Update docker-compose to use the specific release tag
+            # Or pull latest which now points to the release
+            echo "Pulling release images..."
+            docker compose pull frontend backend
+
+            # Restart services
+            echo "Restarting services..."
+            docker compose up -d frontend backend
+
+            # Wait for services to start
+            echo "Waiting for services to start..."
+            sleep 15
+
+            # Health checks
+            echo "Running health checks..."
+
+            # Backend health check
+            for i in {1..10}; do
+              if curl -f -s http://localhost:8000/v1/health > /dev/null 2>&1; then
+                echo "Backend health check passed!"
+                break
+              fi
+              echo "Backend attempt $i/10 - waiting..."
+              sleep 3
+              if [ $i -eq 10 ]; then
+                echo "Backend health check failed!"
+                docker compose logs --tail=30 backend
+                exit 1
+              fi
+            done
+
+            # Frontend health check
+            for i in {1..10}; do
+              if curl -f -s http://localhost:3000 > /dev/null 2>&1; then
+                echo "Frontend health check passed!"
+                break
+              fi
+              echo "Frontend attempt $i/10 - waiting..."
+              sleep 3
+              if [ $i -eq 10 ]; then
+                echo "Frontend health check failed!"
+                docker compose logs --tail=30 frontend
+                exit 1
+              fi
+            done
+
+            echo "=== Production deployment of ${{ needs.release.outputs.release_tag }} successful! ==="
+
+      - name: Notify Slack about Release
+        if: env.SLACK_WEBHOOK_URL != ''
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then
+            echo "SLACK_WEBHOOK_URL not set, skipping notification"
+            exit 0
+          fi
+
+          curl -X POST -H 'Content-type: application/json' \
+            --data "{
+              \"blocks\": [
+                {
+                  \"type\": \"header\",
+                  \"text\": {
+                    \"type\": \"plain_text\",
+                    \"text\": \":rocket: GastroPilot Release ${{ needs.release.outputs.release_tag }}\"
+                  }
+                },
+                {
+                  \"type\": \"section\",
+                  \"fields\": [
+                    {\"type\": \"mrkdwn\", \"text\": \"*Version:* ${{ needs.release.outputs.new_version }}\"},
+                    {\"type\": \"mrkdwn\", \"text\": \"*Environment:* Production\"},
+                    {\"type\": \"mrkdwn\", \"text\": \"*Released by:* ${{ github.actor }}\"}
+                  ]
+                },
+                {
+                  \"type\": \"context\",
+                  \"elements\": [
+                    {
+                      \"type\": \"mrkdwn\",
+                      \"text\": \"<${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ needs.release.outputs.release_tag }}|View Release>\"
+                    }
+                  ]
+                }
+              ]
+            }" \
+            "$SLACK_WEBHOOK_URL"
