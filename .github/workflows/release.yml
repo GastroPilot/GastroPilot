@@ -21,6 +21,11 @@ permissions:
   contents: write
   packages: write
 
+# Prevent concurrent releases to avoid conflicts
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 env:
   REGISTRY: ghcr.io
 
@@ -148,10 +153,21 @@ jobs:
       - name: Commit version bump
         run: |
           git commit -m "chore(release): ${{ steps.bump.outputs.new_version }}"
-          git push
 
-      - name: Create and push tag
+      - name: Push changes and tag
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Configure git to use GITHUB_TOKEN for push (has write access to this repo)
+          git remote set-url origin https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git
+          
+          # Pull latest changes and rebase our commit on top
+          git pull --rebase origin main
+          
+          # Push the commit
+          git push
+          
+          # Create and push the tag
           git tag -a "${{ steps.bump.outputs.release_tag }}" -m "Release ${{ steps.bump.outputs.new_version }}"
           git push origin "${{ steps.bump.outputs.release_tag }}"
 
