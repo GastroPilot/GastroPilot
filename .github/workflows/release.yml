@@ -37,7 +37,7 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.SUBMODULE_PAT }}
 
       - name: Configure Git
         run: |
@@ -176,6 +176,7 @@ jobs:
         with:
           submodules: recursive
           ref: ${{ needs.release.outputs.release_tag }}
+          token: ${{ secrets.SUBMODULE_PAT }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
