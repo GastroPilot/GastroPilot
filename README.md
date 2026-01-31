@@ -12,7 +12,7 @@ To set up an GastroPilot instance, please follow our [install instructions](INST
 
 ## Development
 
-For further information about developing GastroPilot, refer to [the development readme](DEVELOPMENT.md).
+For further information about developing GastroPilot, refer to [the development readme](DEVELOP.md).
 
 
 ## License and authors

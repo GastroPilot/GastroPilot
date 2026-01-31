@@ -15,9 +15,15 @@ on:
         options:
           - demo
           - production
+      build_ios:
+        description: 'Build iOS App?'
+        required: false
+        type: boolean
+        default: false
 
 env:
   REGISTRY: ghcr.io
+  NODE_VERSION: '20'
 
 jobs:
   # ============================================
@@ -142,6 +148,100 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  build-app:
+    name: Build App (Expo Web)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout code with submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          token: ${{ secrets.SUBMODULE_PAT }}
+
+      - name: Get version from VERSION file
+        id: version
+        run: |
+          VERSION=$(cat VERSION 2>/dev/null || echo "0.0.0-dev")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building version: $VERSION"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: './gastropilot-app/package-lock.json'
+
+      - name: Install dependencies
+        working-directory: ./gastropilot-app
+        run: npm ci
+
+      - name: Run Lint
+        working-directory: ./gastropilot-app
+        run: npm run lint
+
+      - name: Run TypeScript check
+        working-directory: ./gastropilot-app
+        run: npx tsc --noEmit
+
+      - name: Build Expo Web
+        working-directory: ./gastropilot-app
+        run: npx expo export --platform web --output-dir dist
+
+      - name: Create deployment package
+        working-directory: ./gastropilot-app
+        run: |
+          tar -czf ../expo-web-staging.tar.gz -C dist .
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: expo-web-build
+          path: expo-web-staging.tar.gz
+          retention-days: 1
+
+  build-ios:
+    name: Build iOS App (EAS)
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.build_ios == 'true') ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    steps:
+      - name: Checkout code with submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          token: ${{ secrets.SUBMODULE_PAT }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: './gastropilot-app/package-lock.json'
+
+      - name: Install dependencies
+        working-directory: ./gastropilot-app
+        run: npm ci
+
+      - name: Setup Expo CLI
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Build iOS App with EAS
+        working-directory: ./gastropilot-app
+        run: |
+          eas build --platform ios --profile staging --non-interactive
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+
   # ============================================
   # Deploy to Staging (push/PR to main)
   # ============================================
@@ -149,12 +249,18 @@ jobs:
   deploy-staging:
     name: Deploy to Staging
     runs-on: ubuntu-latest
-    needs: [build-frontend, build-backend]
+    needs: [build-frontend, build-backend, build-app]
     if: github.event_name == 'push' || github.event_name == 'pull_request'
     environment:
       name: staging
       url: https://staging.gpilot.app
     steps:
+      - name: Download App build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: expo-web-build
+          path: ./
+
       - name: Deploy to Staging Server
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -216,6 +322,49 @@ jobs:
             done
 
             echo "=== Staging deployment successful! ==="
+
+      - name: Deploy App to Staging
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "expo-web-staging.tar.gz"
+          target: "/tmp/"
+
+      - name: Extract and deploy App
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+            DEPLOY_PATH="/opt/gastropilot/staging/expo-web"
+            
+            echo "=== Deploying Expo Web App to Staging ==="
+            
+            NEW_DIR="${DEPLOY_PATH}_new"
+            BACKUP_DIR="${DEPLOY_PATH}_backup_$(date +%s)"
+            
+            rm -rf "$NEW_DIR"
+            mkdir -p "$NEW_DIR"
+            
+            echo "Extracting web build..."
+            tar -xzf /tmp/expo-web-staging.tar.gz -C "$NEW_DIR"
+            rm -f /tmp/expo-web-staging.tar.gz
+            
+            if [ -d "$DEPLOY_PATH" ]; then
+              mv "$DEPLOY_PATH" "$BACKUP_DIR" || true
+              echo "Backup created at $BACKUP_DIR"
+            fi
+            
+            mv "$NEW_DIR" "$DEPLOY_PATH"
+            
+            # Cleanup old backups (keep last 3)
+            ls -dt ${DEPLOY_PATH}_backup_* 2>/dev/null | tail -n +4 | xargs rm -rf || true
+            
+            echo "=== Expo Web App staging deployment successful! ==="
 
   # ============================================
   # Deploy to Demo (workflow_dispatch)
@@ -293,6 +442,28 @@ jobs:
                 exit 1
               fi
             done
+
+            # Promote Expo Web App from staging to demo
+            echo "=== Promoting Expo Web App to Demo ==="
+            STAGING_PATH="/opt/gastropilot/staging/expo-web"
+            DEMO_PATH="/opt/gastropilot/demo/expo-web"
+            
+            if [ -d "$STAGING_PATH" ]; then
+              BACKUP_DIR="${DEMO_PATH}_backup_$(date +%s)"
+              
+              if [ -d "$DEMO_PATH" ]; then
+                mv "$DEMO_PATH" "$BACKUP_DIR" || true
+              fi
+              
+              cp -r "$STAGING_PATH" "$DEMO_PATH"
+              
+              # Cleanup old backups
+              ls -dt ${DEMO_PATH}_backup_* 2>/dev/null | tail -n +4 | xargs rm -rf || true
+              
+              echo "Expo Web App promoted to demo!"
+            else
+              echo "Warning: Staging Expo Web not found, skipping app promotion"
+            fi
 
             echo "=== Demo deployment successful! ==="
 
@@ -373,6 +544,28 @@ jobs:
               fi
             done
 
+            # Promote Expo Web App from staging to production
+            echo "=== Promoting Expo Web App to Production ==="
+            STAGING_PATH="/opt/gastropilot/staging/expo-web"
+            PROD_PATH="/opt/gastropilot/production/expo-web"
+            
+            if [ -d "$STAGING_PATH" ]; then
+              BACKUP_DIR="${PROD_PATH}_backup_$(date +%s)"
+              
+              if [ -d "$PROD_PATH" ]; then
+                mv "$PROD_PATH" "$BACKUP_DIR" || true
+              fi
+              
+              cp -r "$STAGING_PATH" "$PROD_PATH"
+              
+              # Cleanup old backups
+              ls -dt ${PROD_PATH}_backup_* 2>/dev/null | tail -n +4 | xargs rm -rf || true
+              
+              echo "Expo Web App promoted to production!"
+            else
+              echo "Warning: Staging Expo Web not found, skipping app promotion"
+            fi
+
             echo "=== Production deployment successful! ==="
 
   # ============================================
@@ -382,7 +575,7 @@ jobs:
   notify-slack:
     name: Notify Slack
     runs-on: ubuntu-latest
-    needs: [build-frontend, build-backend, deploy-staging]
+    needs: [build-frontend, build-backend, build-app, deploy-staging]
     if: always() && (github.event_name == 'push' || github.event_name == 'pull_request')
     steps:
       - name: Determine status
@@ -390,6 +583,7 @@ jobs:
         run: |
           if [ "${{ needs.build-frontend.result }}" == "success" ] && \
              [ "${{ needs.build-backend.result }}" == "success" ] && \
+             [ "${{ needs.build-app.result }}" == "success" ] && \
              [ "${{ needs.deploy-staging.result }}" == "success" ]; then
             echo "status=success" >> $GITHUB_OUTPUT
             echo "emoji=:white_check_mark:" >> $GITHUB_OUTPUT

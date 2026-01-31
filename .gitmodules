@@ -4,3 +4,6 @@
 [submodule "gastropilot-frontend"]
 	path = gastropilot-frontend
 	url = https://github.com/GastroPilot/gastropilot-frontend.git
+[submodule "gastropilot-app"]
+	path = gastropilot-app
+	url = https://github.com/GastroPilot/gastropilot-app.git

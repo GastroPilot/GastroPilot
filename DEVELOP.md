@@ -27,6 +27,7 @@ GastroPilot/
 ├── .github/ISSUE_TEMPLATE/  # Issue-Vorlagen für GitHub
 ├── gastropilot-backend/     # FastAPI Backend (Submodule)
 ├── gastropilot-frontend/    # Next.js Frontend (Submodule)
+├── gastropilot-app/         # Expo React Native App (Submodule)
 ├── docker-compose.yml       # Staging-Umgebung
 ├── VERSION                  # Aktuelle Version (semver)
 ├── AUTHORS                  # Projektautoren
@@ -42,6 +43,7 @@ GastroPilot/
 |-----------|------------|
 | Backend | `https://github.com/GastroPilot/gastropilot-backend.git` |
 | Frontend | `https://github.com/GastroPilot/gastropilot-frontend.git` |
+| App | `https://github.com/GastroPilot/gastropilot-app.git` |
 
 ---
 
@@ -70,6 +72,16 @@ GastroPilot/
 | Data Fetching | TanStack React Query v5 |
 | Linting | ESLint, Prettier |
 | Testing | Vitest, Playwright |
+
+### Mobile App
+
+| Komponente | Technologie |
+|------------|-------------|
+| Framework | Expo + Expo Router |
+| UI | React Native, TypeScript |
+| Auth | PIN-Login, NFC-Login (native) |
+| API Client | Custom REST Client (`lib/api`) |
+| Linting | ESLint |
 
 ---
 
@@ -150,7 +162,33 @@ npm run dev
 NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
 ```
 
-### 4. Alternative: Docker Compose (empfohlen)
+### 4. Mobile App einrichten
+
+```bash
+cd gastropilot-app
+
+# Dependencies installieren
+npm install
+
+# Umgebungsvariablen kopieren
+cp env.example .env
+# .env anpassen (EXPO_PUBLIC_API_URL)
+
+# Expo starten
+npx expo start
+```
+
+**Wichtige Umgebungsvariablen (.env):**
+
+```bash
+EXPO_PUBLIC_API_URL=http://localhost:8000
+```
+
+**Hinweise:**
+- Für NFC-Login wird ein echtes Gerät mit NFC benötigt
+- NFC funktioniert nicht in Expo Go oder im Web
+
+### 5. Alternative: Docker Compose (empfohlen)
 
 Für eine vollständige Entwicklungsumgebung mit PostgreSQL:
 
@@ -174,6 +212,8 @@ git submodule update --remote --merge
 
 # Oder nur ein spezifisches Submodule
 git submodule update --remote gastropilot-backend
+git submodule update --remote gastropilot-frontend
+git submodule update --remote gastropilot-app
 ```
 
 ### In einem Submodule arbeiten (Feature)
@@ -568,6 +608,10 @@ docker compose exec frontend sh
 # Dependency Updates prüfen
 cd gastropilot-backend && pip list --outdated
 cd gastropilot-frontend && npm outdated
+cd gastropilot-app && npm outdated
+
+# Mobile App starten
+cd gastropilot-app && npx expo start
 ```
 
 ---
