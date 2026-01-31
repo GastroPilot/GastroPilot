@@ -188,8 +188,11 @@ jobs:
         working-directory: ./gastropilot-app
         run: npx tsc --noEmit
 
-      - name: Build Expo Web
+      - name: Build Expo Web for Staging
         working-directory: ./gastropilot-app
+        env:
+          EXPO_PUBLIC_API_URL: https://api-staging.gpilot.app/v1
+          EXPO_PUBLIC_MOTHERSHIP_URL: https://mothership.gastropilot.org/test/v1
         run: npx expo export --platform web --output-dir dist
 
       - name: Create deployment package
@@ -256,7 +259,7 @@ jobs:
     if: github.event_name == 'push' || github.event_name == 'pull_request'
     environment:
       name: staging
-      url: https://staging.gpilot.app
+      url: https://staging.gpilot.app, https://api-staging.gpilot.app, https://app-staging.gpilot.app
     steps:
       - name: Download App build artifacts
         uses: actions/download-artifact@v4
@@ -379,7 +382,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'demo'
     environment:
       name: demo
-      url: https://demo.gpilot.app
+      url: https://demo.gpilot.app, https://api-demo.gpilot.app, https://app-demo.gpilot.app
     steps:
       - name: Deploy to Demo Server
         uses: appleboy/ssh-action@v1.0.3
@@ -480,7 +483,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production'
     environment:
       name: production
-      url: https://gpilot.app
+      url: https://gpilot.app, https://api.gpilot.app
     steps:
       - name: Deploy to Production Server
         uses: appleboy/ssh-action@v1.0.3
