@@ -188,8 +188,10 @@ jobs:
         working-directory: ./gastropilot-app
         run: npx tsc --noEmit
 
-      - name: Build Expo Web
+      - name: Build Expo Web for Staging
         working-directory: ./gastropilot-app
+        env:
+          EXPO_PUBLIC_API_URL: https://api-staging.gpilot.app/v1
         run: npx expo export --platform web --output-dir dist
 
       - name: Create deployment package
