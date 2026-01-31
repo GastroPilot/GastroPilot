@@ -15,11 +15,11 @@ on:
         options:
           - demo
           - production
-      build_ios:
-        description: 'Build iOS App?'
-        required: false
-        type: boolean
-        default: false
+      # build_ios:
+      #   description: 'Build iOS App?'
+      #   required: false
+      #   type: boolean
+      #   default: false
 
 env:
   REGISTRY: ghcr.io
@@ -204,43 +204,46 @@ jobs:
           path: expo-web-staging.tar.gz
           retention-days: 1
 
-  build-ios:
-    name: Build iOS App (EAS)
-    runs-on: ubuntu-latest
-    if: |
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.build_ios == 'true') ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/main')
-    steps:
-      - name: Checkout code with submodules
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          fetch-depth: 0
-          token: ${{ secrets.SUBMODULE_PAT }}
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-          cache-dependency-path: './gastropilot-app/package-lock.json'
-
-      - name: Install dependencies
-        working-directory: ./gastropilot-app
-        run: npm ci
-
-      - name: Setup Expo CLI
-        uses: expo/expo-github-action@v8
-        with:
-          eas-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
-
-      - name: Build iOS App with EAS
-        working-directory: ./gastropilot-app
-        run: |
-          eas build --platform ios --profile staging --non-interactive
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+  # ============================================
+  # iOS Build - Deaktiviert (Apple Developer License erforderlich)
+  # ============================================
+  # build-ios:
+  #   name: Build iOS App (EAS)
+  #   runs-on: ubuntu-latest
+  #   if: |
+  #     (github.event_name == 'workflow_dispatch' && github.event.inputs.build_ios == 'true') ||
+  #     (github.event_name == 'push' && github.ref == 'refs/heads/main')
+  #   steps:
+  #     - name: Checkout code with submodules
+  #       uses: actions/checkout@v4
+  #       with:
+  #         submodules: recursive
+  #         fetch-depth: 0
+  #         token: ${{ secrets.SUBMODULE_PAT }}
+  #
+  #     - name: Setup Node.js
+  #       uses: actions/setup-node@v4
+  #       with:
+  #         node-version: ${{ env.NODE_VERSION }}
+  #         cache: 'npm'
+  #         cache-dependency-path: './gastropilot-app/package-lock.json'
+  #
+  #     - name: Install dependencies
+  #       working-directory: ./gastropilot-app
+  #       run: npm ci
+  #
+  #     - name: Setup Expo CLI
+  #       uses: expo/expo-github-action@v8
+  #       with:
+  #         eas-version: latest
+  #         token: ${{ secrets.EXPO_TOKEN }}
+  #
+  #     - name: Build iOS App with EAS
+  #       working-directory: ./gastropilot-app
+  #       run: |
+  #         eas build --platform ios --profile staging --non-interactive
+  #       env:
+  #         EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
 
   # ============================================
   # Deploy to Staging (push/PR to main)
