@@ -248,6 +248,9 @@ jobs:
 
       - name: Build Expo Web App
         working-directory: ./gastropilot-app
+        env:
+          EXPO_PUBLIC_API_URL: https://api.gpilot.app/v1
+          EXPO_PUBLIC_MOTHERSHIP_URL: https://mothership.gastropilot.org/prod/v1
         run: npx expo export --platform web --output-dir dist
 
       - name: Create App deployment package
