@@ -1,18 +1,5 @@
 # Changelog
 
-## [0.10.0] - 2026-01-31
-
-### Changes
-- fix app (4f5ddde)
-- fixed api call url (3dc06b2)
-- fix several deployment errors (3fdd521)
-- update app (d23e9b1)
-- fix: deployment (96acb04)
-- feature: new submodule (4bae09b)
-- docs: add comprehensive developer documentation for GastroPilot project (340c28d)
-- fix health check (b521736)
-
-
 ## [0.9.1] - 2026-01-29
 
 ### Changes
