@@ -1,0 +1,28 @@
+# ===========================================
+# GastroPilot - Root .gitignore
+# ===========================================
+
+# Environment files
+.env
+.env.dev
+.env.local
+.env.*.local
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE / Editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Docker volumes (if any)
+# Note: Named volumes are managed by Docker, but local bind mounts might create artifacts
+*.log
+
+# Temporary files
+*.tmp
+*.temp

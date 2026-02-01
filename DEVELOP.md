@@ -188,16 +188,64 @@ EXPO_PUBLIC_API_URL=http://localhost:8000
 - Für NFC-Login wird ein echtes Gerät mit NFC benötigt
 - NFC funktioniert nicht in Expo Go oder im Web
 
-### 5. Alternative: Docker Compose (empfohlen)
+### 5. Docker Compose für Entwicklung (empfohlen)
 
-Für eine vollständige Entwicklungsumgebung mit PostgreSQL:
+#### Option A: Komplette Dev-Umgebung (Backend + Frontend + DB)
+
+Die einfachste Methode - startet alle Services zusammen mit Hot-Reload:
 
 ```bash
 # Im Root-Verzeichnis
-docker compose up -d
+# 1. Umgebungsvariablen kopieren
+cp .env.dev.example .env.dev
 
-# Oder für einzelne Services
+# 2. Optional: .env.dev anpassen (Ports, Secrets, etc.)
+
+# 3. Services starten
+docker compose -f docker-compose.dev.yml up
+
+# Oder im Hintergrund:
+docker compose -f docker-compose.dev.yml up -d
+
+# Logs anzeigen
+docker compose -f docker-compose.dev.yml logs -f
+
+# Services stoppen
+docker compose -f docker-compose.dev.yml down
+```
+
+**Verfügbare Services:**
+- **Backend:** http://localhost:8000
+- **Frontend:** http://localhost:3000
+- **Database:** localhost:5432 (PostgreSQL)
+
+**Features:**
+- ✅ Hot-Reload für Backend und Frontend
+- ✅ Source-Code wird per Volume gemountet
+- ✅ PostgreSQL mit persistent storage
+- ✅ Gemeinsames Docker-Netzwerk
+- ✅ Health-Checks für alle Services
+- ✅ Automatisches Anlegen eines Standard-Servecta-Benutzers
+
+**Standard-Login (Development):**
+
+Beim ersten Start wird automatisch ein Servecta-Administrator angelegt:
+- **Bedienernummer:** `0000`
+- **PIN:** `000000`
+- **Rolle:** `servecta` (höchste Berechtigung)
+
+> **Hinweis:** Dieser Benutzer wird nur in der Development- und Test-Umgebung automatisch angelegt.
+
+#### Option B: Einzelne Services
+
+Für mehr Kontrolle können Services auch einzeln gestartet werden:
+
+```bash
+# Nur Backend + Database
 cd gastropilot-backend && docker compose up -d
+
+# Nur Frontend
+cd gastropilot-frontend && docker compose up -d
 ```
 
 ---
@@ -590,26 +638,85 @@ gh pr create --title "fix: Login-Bug beheben" --milestone "v0.9.2"
 
 ## Hilfreiche Befehle
 
+### Git & Submodules
+
 ```bash
 # Alle Submodules aktualisieren
 git submodule update --remote --merge
+```
 
-# Docker Logs anzeigen
-docker compose logs -f backend
-docker compose logs -f frontend
+### Docker Development Environment
+
+```bash
+# Komplette Dev-Umgebung starten
+docker compose -f docker-compose.dev.yml up -d
+
+# Services neu bauen
+docker compose -f docker-compose.dev.yml build
+
+# Logs anzeigen (alle Services)
+docker compose -f docker-compose.dev.yml logs -f
+
+# Logs für einzelnen Service
+docker compose -f docker-compose.dev.yml logs -f backend
+docker compose -f docker-compose.dev.yml logs -f frontend
+docker compose -f docker-compose.dev.yml logs -f db
 
 # In Container einloggen
-docker compose exec backend bash
-docker compose exec frontend sh
+docker compose -f docker-compose.dev.yml exec backend bash
+docker compose -f docker-compose.dev.yml exec frontend sh
+docker compose -f docker-compose.dev.yml exec db psql -U postgres -d gastropilot_dev
 
+# Services stoppen
+docker compose -f docker-compose.dev.yml down
+
+# Services stoppen und Volumes löschen (Datenbank wird zurückgesetzt!)
+docker compose -f docker-compose.dev.yml down -v
+
+# Service neu starten
+docker compose -f docker-compose.dev.yml restart backend
+```
+
+### Einzelne Services (Alternative)
+
+```bash
+# Backend + Database
+cd gastropilot-backend
+docker compose logs -f backend
+docker compose exec backend bash
+
+# Frontend
+cd gastropilot-frontend
+docker compose logs -f frontend
+docker compose exec frontend sh
+```
+
+### Datenbank
+
+```bash
 # Datenbank-Migration (Backend)
 # Migrations werden automatisch beim Start ausgeführt
 
+# PostgreSQL CLI (wenn mit docker-compose.dev.yml gestartet)
+docker compose -f docker-compose.dev.yml exec db psql -U postgres -d gastropilot_dev
+
+# Datenbank zurücksetzen
+docker compose -f docker-compose.dev.yml down -v
+docker compose -f docker-compose.dev.yml up -d
+```
+
+### Dependencies
+
+```bash
 # Dependency Updates prüfen
 cd gastropilot-backend && pip list --outdated
 cd gastropilot-frontend && npm outdated
 cd gastropilot-app && npm outdated
+```
 
+### Mobile App
+
+```bash
 # Mobile App starten
 cd gastropilot-app && npx expo start
 ```
@@ -629,13 +736,19 @@ git submodule update --init --recursive
 ### Docker-Probleme
 
 ```bash
-# Alle Container stoppen und entfernen
-docker compose down -v
+# Development Environment: Alle Container stoppen und entfernen
+docker compose -f docker-compose.dev.yml down -v
 
 # Images neu bauen
-docker compose build --no-cache
+docker compose -f docker-compose.dev.yml build --no-cache
 
 # Neu starten
+docker compose -f docker-compose.dev.yml up -d
+
+# Einzelne Services (Backend/Frontend):
+cd gastropilot-backend  # oder gastropilot-frontend
+docker compose down -v
+docker compose build --no-cache
 docker compose up -d
 ```
 
