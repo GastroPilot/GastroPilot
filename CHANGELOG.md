@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.11.0] - 2026-02-01
+
+### Changes
+- added skeleton screen for loading and updated submodules. added dev environment (60d3085)
+
+
 ## [0.10.0] - 2026-01-31
 
 ### Changes
