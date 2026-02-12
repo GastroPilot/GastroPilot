@@ -12,7 +12,7 @@ name: ${STACK_NAME:-gastropilot}
 services:
   # Backend
   backend:
-    image: gastropilot/gastropilot-backend:${IMAGE_TAG:-latest}
+    image: servecta/gastropilot-backend:${IMAGE_TAG:-latest}
     container_name: ${STACK_NAME:-gastropilot}-backend
     environment:
       ENV: production
@@ -127,7 +127,7 @@ services:
 
   # Frontend
   frontend:
-    image: gastropilot/gastropilot-frontend:${IMAGE_TAG:-latest}
+    image: servecta/gastropilot-frontend:${IMAGE_TAG:-latest}
     container_name: ${STACK_NAME:-gastropilot}-frontend
     environment:
       NODE_ENV: production
