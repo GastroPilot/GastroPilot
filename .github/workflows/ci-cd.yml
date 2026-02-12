@@ -22,7 +22,7 @@ on:
       #   default: false
 
 env:
-  DOCKERHUB_ORG: gastropilot
+  DOCKERHUB_ORG: servecta
   NODE_VERSION: '20'
 
 jobs:
