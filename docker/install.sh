@@ -160,6 +160,11 @@ else
     read -rp "  Domain (z.B. staging.gpilot.app): " DOMAIN
     BASE_URL="https://${DOMAIN}"
 
+    # API Domain
+    API_DOMAIN_DEFAULT="api-${DOMAIN}"
+    read -rp "  API Domain [${API_DOMAIN_DEFAULT}]: " API_DOMAIN
+    API_DOMAIN=${API_DOMAIN:-$API_DOMAIN_DEFAULT}
+
     # Secrets automatisch generieren
     echo "  Generiere Secrets..."
     POSTGRES_PASSWORD=$(generate_secret)
@@ -254,6 +259,7 @@ else
 
 # ==================== STACK ====================
 STACK_NAME=${STACK_NAME}
+API_DOMAIN=${API_DOMAIN}
 
 # ==================== IMAGE ====================
 IMAGE_TAG=${IMAGE_TAG}
@@ -275,9 +281,9 @@ REFRESH_TOKEN_EXPIRE_DAYS=30
 BCRYPT_ROUNDS=12
 
 # CORS & Security
-CORS_ORIGINS=https://${DOMAIN},https://www.${DOMAIN}
+CORS_ORIGINS=https://${DOMAIN},https://www.${DOMAIN},https://${API_DOMAIN}
 CORS_ALLOW_CREDENTIALS=true
-ALLOWED_HOSTS=${DOMAIN},www.${DOMAIN}
+ALLOWED_HOSTS=${DOMAIN},www.${DOMAIN},${API_DOMAIN}
 
 # Logging & Performance
 LOG_LEVEL=INFO
@@ -338,17 +344,27 @@ step "5/11 — SSL-Zertifikate"
 # Proxy-Verzeichnis bestimmen (Geschwister-Verzeichnis "proxy")
 PROXY_DIR="$(cd "$(dirname "$0")" && cd .. && pwd)/proxy"
 
-# Domain aus .env.server lesen falls nicht gesetzt
+# Domains aus .env.server lesen falls nicht gesetzt
 if [ -z "$DOMAIN" ]; then
     DOMAIN=$(grep -E '^ALLOWED_HOSTS=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | cut -d, -f1)
 fi
+if [ -z "$API_DOMAIN" ]; then
+    API_DOMAIN=$(grep -E '^API_DOMAIN=' "$ENV_FILE" 2>/dev/null | cut -d= -f2)
+fi
 
-SSL_DIR="$PROXY_DIR/ssl/$DOMAIN"
+# Pruefen welche Domains Zertifikate benoetigen
+DOMAINS_NEED_SSL=""
+for D in "$DOMAIN" "$API_DOMAIN"; do
+    D_SSL_DIR="$PROXY_DIR/ssl/$D"
+    if [ -f "$D_SSL_DIR/fullchain.pem" ] && [ -f "$D_SSL_DIR/privkey.pem" ]; then
+        echo "  SSL-Zertifikate vorhanden fuer $D."
+    else
+        DOMAINS_NEED_SSL="$DOMAINS_NEED_SSL $D"
+    fi
+done
 
-if [ -f "$SSL_DIR/fullchain.pem" ] && [ -f "$SSL_DIR/privkey.pem" ]; then
-    echo "  SSL-Zertifikate vorhanden ($SSL_DIR)."
-else
-    echo "  Keine SSL-Zertifikate fuer $DOMAIN gefunden."
+if [ -n "$DOMAINS_NEED_SSL" ]; then
+    echo "  SSL-Zertifikate benoetigt fuer:$DOMAINS_NEED_SSL"
     echo
     echo "  1) Let's Encrypt (certbot) — Produktion"
     echo "  2) Vorhandene Let's Encrypt Zertifikate kopieren"
@@ -356,12 +372,11 @@ else
     echo "  4) Abbrechen — ich kopiere meine Zertifikate selbst"
     echo
     read -rp "  Auswahl [1/2/3/4]: " SSL_CHOICE
-    mkdir -p "$SSL_DIR"
 
     if [ "$SSL_CHOICE" = "1" ]; then
         read -rp "  E-Mail fuer Let's Encrypt: " CERT_EMAIL
         echo
-        echo "  Hole Let's Encrypt Zertifikat fuer $DOMAIN..."
+        echo "  Hole Let's Encrypt Zertifikate..."
         echo "  (Port 80 muss von aussen erreichbar sein)"
         echo
         # Alle Container stoppen, die Port 80 belegen (auch andere Stacks)
@@ -371,45 +386,64 @@ else
             docker stop $PORT80_CONTAINERS 2>/dev/null || true
         fi
         mkdir -p certbot
-        docker run --rm -p 80:80 \
-            -v "$(pwd)/certbot:/etc/letsencrypt" \
-            certbot/certbot certonly --standalone \
-            -d "$DOMAIN" \
-            --non-interactive --agree-tos \
-            -m "$CERT_EMAIL"
-        cp "certbot/live/$DOMAIN/fullchain.pem" "$SSL_DIR/"
-        cp "certbot/live/$DOMAIN/privkey.pem" "$SSL_DIR/"
-        echo "  Let's Encrypt Zertifikat installiert nach $SSL_DIR."
+        for D in $DOMAINS_NEED_SSL; do
+            D_SSL_DIR="$PROXY_DIR/ssl/$D"
+            mkdir -p "$D_SSL_DIR"
+            echo "  Zertifikat fuer $D..."
+            docker run --rm -p 80:80 \
+                -v "$(pwd)/certbot:/etc/letsencrypt" \
+                certbot/certbot certonly --standalone \
+                -d "$D" \
+                --non-interactive --agree-tos \
+                -m "$CERT_EMAIL"
+            cp "certbot/live/$D/fullchain.pem" "$D_SSL_DIR/"
+            cp "certbot/live/$D/privkey.pem" "$D_SSL_DIR/"
+            echo "  Let's Encrypt Zertifikat fuer $D installiert."
+        done
         echo
-        echo "  Hinweis: Zertifikat erneuern (alle 90 Tage):"
+        echo "  Hinweis: Zertifikate erneuern (alle 90 Tage):"
         echo "    docker stop gastropilot-proxy"
         echo "    docker run --rm -p 80:80 -v \$(pwd)/certbot:/etc/letsencrypt certbot/certbot renew"
-        echo "    cp certbot/live/$DOMAIN/fullchain.pem $SSL_DIR/"
-        echo "    cp certbot/live/$DOMAIN/privkey.pem $SSL_DIR/"
+        for D in $DOMAINS_NEED_SSL; do
+            echo "    cp certbot/live/$D/*.pem $PROXY_DIR/ssl/$D/"
+        done
         echo "    docker start gastropilot-proxy"
+
     elif [ "$SSL_CHOICE" = "2" ]; then
-        # Zuerst lokales certbot-Verzeichnis pruefen (Docker-certbot),
-        # dann System-Pfad (/etc/letsencrypt)
-        if [ -f "certbot/live/$DOMAIN/fullchain.pem" ]; then
-            LE_PATH="certbot/live/$DOMAIN"
-        elif [ -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" ]; then
-            LE_PATH="/etc/letsencrypt/live/$DOMAIN"
-        else
-            echo "  Fehler: Keine Zertifikate fuer $DOMAIN gefunden."
-            echo "  Geprueft: ./certbot/live/$DOMAIN/ und /etc/letsencrypt/live/$DOMAIN/"
-            exit 1
-        fi
-        cp "$LE_PATH/fullchain.pem" "$SSL_DIR/"
-        cp "$LE_PATH/privkey.pem" "$SSL_DIR/"
-        echo "  Zertifikate aus $LE_PATH kopiert nach $SSL_DIR."
+        for D in $DOMAINS_NEED_SSL; do
+            D_SSL_DIR="$PROXY_DIR/ssl/$D"
+            mkdir -p "$D_SSL_DIR"
+            if [ -f "certbot/live/$D/fullchain.pem" ]; then
+                LE_PATH="certbot/live/$D"
+            elif [ -f "/etc/letsencrypt/live/$D/fullchain.pem" ]; then
+                LE_PATH="/etc/letsencrypt/live/$D"
+            else
+                echo "  Fehler: Keine Zertifikate fuer $D gefunden."
+                echo "  Geprueft: ./certbot/live/$D/ und /etc/letsencrypt/live/$D/"
+                exit 1
+            fi
+            cp "$LE_PATH/fullchain.pem" "$D_SSL_DIR/"
+            cp "$LE_PATH/privkey.pem" "$D_SSL_DIR/"
+            echo "  Zertifikate fuer $D aus $LE_PATH kopiert."
+        done
+
     elif [ "$SSL_CHOICE" = "3" ]; then
-        openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-            -keyout "$SSL_DIR/privkey.pem" \
-            -out "$SSL_DIR/fullchain.pem" \
-            -subj "/CN=${DOMAIN:-localhost}" 2>/dev/null
-        echo "  Selbstsigniertes Zertifikat erstellt in $SSL_DIR."
+        for D in $DOMAINS_NEED_SSL; do
+            D_SSL_DIR="$PROXY_DIR/ssl/$D"
+            mkdir -p "$D_SSL_DIR"
+            openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+                -keyout "$D_SSL_DIR/privkey.pem" \
+                -out "$D_SSL_DIR/fullchain.pem" \
+                -subj "/CN=$D" 2>/dev/null
+            echo "  Selbstsigniertes Zertifikat fuer $D erstellt."
+        done
+
     else
-        echo "  Kopiere deine Zertifikate nach $SSL_DIR/ und starte install.sh erneut."
+        echo "  Kopiere deine Zertifikate nach:"
+        for D in $DOMAINS_NEED_SSL; do
+            echo "    $PROXY_DIR/ssl/$D/"
+        done
+        echo "  und starte install.sh erneut."
         exit 0
     fi
 fi
@@ -482,6 +516,54 @@ PROXYEOF
 
 echo "  $PROXY_DIR/conf.d/${DOMAIN}.conf erstellt."
 
+# API-Domain Proxy-Config
+API_UPSTREAM_NAME="${STACK_NAME}-api-upstream"
+
+echo "  Generiere Proxy-Config fuer $API_DOMAIN..."
+
+cat > "$PROXY_DIR/conf.d/${API_DOMAIN}.conf" << PROXYEOF
+upstream ${API_UPSTREAM_NAME} {
+    server ${NGINX_CONTAINER}:80;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name ${API_DOMAIN};
+
+    ssl_certificate /etc/nginx/ssl/${API_DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/nginx/ssl/${API_DOMAIN}/privkey.pem;
+
+    # Security Headers
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+    location / {
+        proxy_pass http://${API_UPSTREAM_NAME};
+        proxy_http_version 1.1;
+
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header X-Forwarded-Host \$host;
+
+        # WebSocket / SSE
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection \$connection_upgrade;
+        proxy_buffering off;
+
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+    }
+}
+PROXYEOF
+
+echo "  $PROXY_DIR/conf.d/${API_DOMAIN}.conf erstellt."
+
 # Proxy starten / neuladen
 echo "  Starte/aktualisiere Proxy..."
 docker compose -f "$PROXY_DIR/docker-compose.proxy.yml" up -d
@@ -536,39 +618,58 @@ step "9/11 — Admin-Account"
 read -rp "  Admin-Account erstellen? (J/n): " ADMIN_CHOICE
 if [[ ! "$ADMIN_CHOICE" =~ ^[nN]$ ]]; then
     echo
-    read -rp "  E-Mail: " ADMIN_EMAIL
+    read -rp "  Bedienernummer (4-stellig) [0000]: " ADMIN_OPERATOR
+    ADMIN_OPERATOR=${ADMIN_OPERATOR:-0000}
     read -rp "  Vorname: " ADMIN_FIRST
     read -rp "  Nachname: " ADMIN_LAST
-    read -rsp "  Passwort (min. 8 Zeichen): " ADMIN_PASS
+    read -rsp "  PIN (min. 6 Zeichen): " ADMIN_PIN
     echo
 
-    if [ ${#ADMIN_PASS} -lt 8 ]; then
-        echo "  Fehler: Passwort zu kurz. Erstelle den Admin spaeter mit ./create-admin.sh"
+    if [ ${#ADMIN_OPERATOR} -ne 4 ]; then
+        echo "  Fehler: Bedienernummer muss genau 4 Zeichen lang sein. Erstelle den Admin spaeter mit ./create-admin.sh"
+    elif [ ${#ADMIN_PIN} -lt 6 ]; then
+        echo "  Fehler: PIN zu kurz. Erstelle den Admin spaeter mit ./create-admin.sh"
     else
+        echo
+        echo "  Rolle:"
+        echo "    1) restaurantinhaber (Standard-Admin)"
+        echo "    2) servecta (Super-Admin)"
+        read -rp "  Auswahl [1/2]: " ROLE_CHOICE
+        if [ "$ROLE_CHOICE" = "2" ]; then
+            ADMIN_ROLE="servecta"
+        else
+            ADMIN_ROLE="restaurantinhaber"
+        fi
+
         docker exec \
-            -e ADMIN_EMAIL="$ADMIN_EMAIL" \
+            -e ADMIN_OPERATOR_NUMBER="$ADMIN_OPERATOR" \
             -e ADMIN_FIRST_NAME="$ADMIN_FIRST" \
             -e ADMIN_LAST_NAME="$ADMIN_LAST" \
-            -e ADMIN_PASSWORD="$ADMIN_PASS" \
+            -e ADMIN_PIN="$ADMIN_PIN" \
+            -e ADMIN_ROLE="$ADMIN_ROLE" \
             "${STACK_NAME}-backend" python -c "
 import asyncio, os
 from app.database.instance import async_session
-from app.database.models import Users
+from app.database.models import User
 from app.auth import hash_password
 
 async def create_admin():
-    email = os.environ['ADMIN_EMAIL'].lower().strip()
+    operator_number = os.environ['ADMIN_OPERATOR_NUMBER']
+    first_name = os.environ['ADMIN_FIRST_NAME'].strip()
+    last_name = os.environ['ADMIN_LAST_NAME'].strip()
+    pin = os.environ['ADMIN_PIN']
+    role = os.environ['ADMIN_ROLE']
     async with async_session() as session:
         async with session.begin():
-            user = Users(
-                email=email,
-                first_name=os.environ['ADMIN_FIRST_NAME'].strip(),
-                last_name=os.environ['ADMIN_LAST_NAME'].strip(),
-                password_hash=hash_password(os.environ['ADMIN_PASSWORD']),
-                role='super_admin'
+            user = User(
+                operator_number=operator_number,
+                pin_hash=hash_password(pin),
+                first_name=first_name,
+                last_name=last_name,
+                role=role
             )
             session.add(user)
-    print(f'  Admin erstellt: {email}')
+    print(f'  Admin erstellt: {first_name} {last_name} (Bediener {operator_number}, Rolle: {role})')
 
 asyncio.run(create_admin())
 "
@@ -599,8 +700,9 @@ echo "  Datei: $ENV_FILE"
 echo
 echo "Proxy:"
 echo "  Verzeichnis: $PROXY_DIR"
-echo "  Domain-Config: $PROXY_DIR/conf.d/${DOMAIN}.conf"
-echo "  SSL: $SSL_DIR/"
+echo "  Frontend: $PROXY_DIR/conf.d/${DOMAIN}.conf"
+echo "  API:      $PROXY_DIR/conf.d/${API_DOMAIN}.conf"
+echo "  SSL:      $PROXY_DIR/ssl/${DOMAIN}/ + $PROXY_DIR/ssl/${API_DOMAIN}/"
 echo
 echo "Befehle:"
 echo "  ./update.sh          — Update (Images pullen + Neustart)"
