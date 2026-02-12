@@ -34,7 +34,7 @@ jobs:
   # ============================================
 
   build-test-frontend:
-    name: Build Frontend
+    name: Build Test Frontend
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch'
     outputs:
@@ -89,7 +89,7 @@ jobs:
             NEXT_PUBLIC_APP_VERSION=${{ steps.version.outputs.version }}
 
   build-test-backend:
-    name: Build Backend
+    name: Build Test Backend
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch'
     outputs:
@@ -147,7 +147,7 @@ jobs:
   # ============================================
 
   build-frontend:
-    name: Build Frontend
+    name: Build Staging Frontend
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     outputs:
@@ -202,7 +202,7 @@ jobs:
             NEXT_PUBLIC_APP_VERSION=${{ steps.version.outputs.version }}
 
   build-backend:
-    name: Build Backend
+    name: Build Staging Backend
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     outputs:
