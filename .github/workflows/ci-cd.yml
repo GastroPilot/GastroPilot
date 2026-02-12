@@ -13,6 +13,8 @@ on:
         required: true
         type: choice
         options:
+          - test
+          - staging
           - demo
           - production
       # build_ios:
