@@ -72,21 +72,27 @@ echo
 # ============================================
 # 2. GitHub Zugangsdaten
 # ============================================
-step "2/11 — GitHub Zugangsdaten"
+step "2/11 — Zugangsdaten"
 
+# GitHub (fuer Repository-Clone)
+echo "  --- GitHub ---"
 read -rp "  GitHub Username: " GH_USER
-read -rsp "  GitHub Token (read:packages + repo): " GH_TOKEN
+read -rsp "  GitHub Token (repo): " GH_TOKEN
 echo
-echo
-
-# Docker Hub Login
-read -rp "  Docker Hub Username: " DH_USER
-read -rsp "  Docker Hub Token/Passwort: " DH_TOKEN
-echo
-echo "$DH_TOKEN" | docker login -u "$DH_USER" --password-stdin
 echo
 
 REPO_AUTH="https://${GH_USER}:${GH_TOKEN}@github.com/GastroPilot/GastroPilot.git"
+
+# Docker Hub (fuer private Images)
+echo "  --- Docker Hub ---"
+read -rp "  Docker Hub Username: " DH_USER
+read -rsp "  Docker Hub Token: " DH_TOKEN
+echo
+echo
+
+echo "  Docker Hub Login..."
+echo "$DH_TOKEN" | docker login -u "$DH_USER" --password-stdin
+echo
 
 # ============================================
 # 3. Dateien aus GitHub holen

@@ -90,6 +90,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - gastropilot
 
@@ -110,9 +112,10 @@ services:
       - gastropilot
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-gastropilot}"]
-      interval: 10s
+      interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 10s
     deploy:
       resources:
         limits:
@@ -196,10 +199,11 @@ services:
     networks:
       - gastropilot
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a $$REDIS_PASSWORD ping | grep PONG"]
-      interval: 10s
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 5s
       timeout: 3s
-      retries: 5
+      retries: 10
+      start_period: 5s
     deploy:
       resources:
         limits:
