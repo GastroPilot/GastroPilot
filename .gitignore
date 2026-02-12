@@ -31,3 +31,4 @@ Thumbs.db
 docker/.env.server
 docker/ssl/
 docker/certbot/
+docker/install.sh

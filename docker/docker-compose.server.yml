@@ -16,7 +16,7 @@ services:
     container_name: ${STACK_NAME:-gastropilot}-backend
     environment:
       ENV: production
-      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-gastropilot}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-gastropilot}}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-gastropilot}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-gastropilot}?sslmode=disable}
       DATABASE_TYPE: ${DATABASE_TYPE:-neon}
       DATABASE_SSL_VERIFY: ${DATABASE_SSL_VERIFY:-false}
       JWT_SECRET: ${JWT_SECRET}
