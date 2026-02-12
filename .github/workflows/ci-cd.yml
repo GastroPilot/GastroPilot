@@ -22,7 +22,7 @@ on:
       #   default: false
 
 env:
-  REGISTRY: ghcr.io
+  DOCKERHUB_ORG: gastropilot
   NODE_VERSION: '20'
 
 jobs:
@@ -34,9 +34,6 @@ jobs:
     name: Build Frontend
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || github.event_name == 'pull_request'
-    permissions:
-      contents: read
-      packages: write
     outputs:
       image_tag: ${{ steps.meta.outputs.tags }}
       image_digest: ${{ steps.build.outputs.digest }}
@@ -59,18 +56,17 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Login to GitHub Container Registry
+      - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Extract metadata for Docker
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/gastropilot/gastropilot-frontend
+          images: ${{ env.DOCKERHUB_ORG }}/gastropilot-frontend
           tags: |
             type=raw,value=staging
             type=raw,value=${{ steps.version.outputs.version }}
@@ -93,9 +89,6 @@ jobs:
     name: Build Backend
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || github.event_name == 'pull_request'
-    permissions:
-      contents: read
-      packages: write
     outputs:
       image_tag: ${{ steps.meta.outputs.tags }}
       image_digest: ${{ steps.build.outputs.digest }}
@@ -120,18 +113,17 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Login to GitHub Container Registry
+      - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Extract metadata for Docker
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/gastropilot/gastropilot-backend
+          images: ${{ env.DOCKERHUB_ORG }}/gastropilot-backend
           tags: |
             type=raw,value=staging
             type=raw,value=${{ steps.version.outputs.version }}
@@ -289,29 +281,29 @@ jobs:
           script: |
             set -e
             DEPLOY_PATH="/opt/gastropilot/staging/expo-web"
-            
+
             echo "=== Deploying Expo Web App to Staging ==="
-            
+
             NEW_DIR="${DEPLOY_PATH}_new"
             BACKUP_DIR="${DEPLOY_PATH}_backup_$(date +%s)"
-            
+
             rm -rf "$NEW_DIR"
             mkdir -p "$NEW_DIR"
-            
+
             echo "Extracting web build..."
             tar -xzf /tmp/expo-web-staging.tar.gz -C "$NEW_DIR"
             rm -f /tmp/expo-web-staging.tar.gz
-            
+
             if [ -d "$DEPLOY_PATH" ]; then
               mv "$DEPLOY_PATH" "$BACKUP_DIR" || true
               echo "Backup created at $BACKUP_DIR"
             fi
-            
+
             mv "$NEW_DIR" "$DEPLOY_PATH"
-            
+
             # Cleanup old backups (keep last 3)
             ls -dt ${DEPLOY_PATH}_backup_* 2>/dev/null | tail -n +4 | xargs rm -rf || true
-            
+
             echo "=== Expo Web App staging deployment successful! ==="
 
   # ============================================
@@ -322,37 +314,33 @@ jobs:
     name: Deploy to Demo
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'demo'
-    permissions:
-      contents: read
-      packages: write
     environment:
       name: demo
       url: https://demo.gpilot.app, https://api-demo.gpilot.app, https://app-demo.gpilot.app
     steps:
-      # Promote staging images to :demo tag on GHCR.
+      # Promote staging images to :demo tag on Docker Hub.
       # Watchtower on the demo server polls for new :demo images and restarts automatically.
-      - name: Login to GitHub Container Registry
+      - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Promote staging images to demo
         run: |
           echo "=== Promoting staging images to demo ==="
 
           # Pull staging images
-          docker pull ghcr.io/gastropilot/gastropilot-frontend:staging
-          docker pull ghcr.io/gastropilot/gastropilot-backend:staging
+          docker pull ${{ env.DOCKERHUB_ORG }}/gastropilot-frontend:staging
+          docker pull ${{ env.DOCKERHUB_ORG }}/gastropilot-backend:staging
 
           # Tag as demo
-          docker tag ghcr.io/gastropilot/gastropilot-frontend:staging ghcr.io/gastropilot/gastropilot-frontend:demo
-          docker tag ghcr.io/gastropilot/gastropilot-backend:staging ghcr.io/gastropilot/gastropilot-backend:demo
+          docker tag ${{ env.DOCKERHUB_ORG }}/gastropilot-frontend:staging ${{ env.DOCKERHUB_ORG }}/gastropilot-frontend:demo
+          docker tag ${{ env.DOCKERHUB_ORG }}/gastropilot-backend:staging ${{ env.DOCKERHUB_ORG }}/gastropilot-backend:demo
 
           # Push demo tags — Watchtower on demo server will pick these up
-          docker push ghcr.io/gastropilot/gastropilot-frontend:demo
-          docker push ghcr.io/gastropilot/gastropilot-backend:demo
+          docker push ${{ env.DOCKERHUB_ORG }}/gastropilot-frontend:demo
+          docker push ${{ env.DOCKERHUB_ORG }}/gastropilot-backend:demo
 
           echo "=== Demo images pushed. Watchtower will deploy automatically. ==="
 
@@ -395,37 +383,33 @@ jobs:
     name: Deploy to Production
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production'
-    permissions:
-      contents: read
-      packages: write
     environment:
       name: production
       url: https://gpilot.app, https://api.gpilot.app
     steps:
-      # Promote staging images to :latest tag on GHCR.
+      # Promote staging images to :latest tag on Docker Hub.
       # Watchtower on the production server polls for new :latest images and restarts automatically.
-      - name: Login to GitHub Container Registry
+      - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Promote staging images to production
         run: |
           echo "=== Promoting staging images to production ==="
 
           # Pull staging images
-          docker pull ghcr.io/gastropilot/gastropilot-frontend:staging
-          docker pull ghcr.io/gastropilot/gastropilot-backend:staging
+          docker pull ${{ env.DOCKERHUB_ORG }}/gastropilot-frontend:staging
+          docker pull ${{ env.DOCKERHUB_ORG }}/gastropilot-backend:staging
 
           # Tag as latest (production)
-          docker tag ghcr.io/gastropilot/gastropilot-frontend:staging ghcr.io/gastropilot/gastropilot-frontend:latest
-          docker tag ghcr.io/gastropilot/gastropilot-backend:staging ghcr.io/gastropilot/gastropilot-backend:latest
+          docker tag ${{ env.DOCKERHUB_ORG }}/gastropilot-frontend:staging ${{ env.DOCKERHUB_ORG }}/gastropilot-frontend:latest
+          docker tag ${{ env.DOCKERHUB_ORG }}/gastropilot-backend:staging ${{ env.DOCKERHUB_ORG }}/gastropilot-backend:latest
 
           # Push latest tags — Watchtower on production server will pick these up
-          docker push ghcr.io/gastropilot/gastropilot-frontend:latest
-          docker push ghcr.io/gastropilot/gastropilot-backend:latest
+          docker push ${{ env.DOCKERHUB_ORG }}/gastropilot-frontend:latest
+          docker push ${{ env.DOCKERHUB_ORG }}/gastropilot-backend:latest
 
           echo "=== Production images pushed. Watchtower will deploy automatically. ==="
 

@@ -1,5 +1,5 @@
 # Server-Deployment mit Watchtower
-# Images werden von ghcr.io gezogen (statt lokal gebaut).
+# Images werden von Docker Hub gezogen (statt lokal gebaut).
 # Watchtower aktualisiert Container automatisch bei neuen Images.
 #
 # Verwendung:
@@ -12,7 +12,7 @@ name: ${STACK_NAME:-gastropilot}
 services:
   # Backend
   backend:
-    image: ghcr.io/gastropilot/gastropilot-backend:${IMAGE_TAG:-latest}
+    image: gastropilot/gastropilot-backend:${IMAGE_TAG:-latest}
     container_name: ${STACK_NAME:-gastropilot}-backend
     environment:
       ENV: production
@@ -124,7 +124,7 @@ services:
 
   # Frontend
   frontend:
-    image: ghcr.io/gastropilot/gastropilot-frontend:${IMAGE_TAG:-latest}
+    image: gastropilot/gastropilot-frontend:${IMAGE_TAG:-latest}
     container_name: ${STACK_NAME:-gastropilot}-frontend
     environment:
       NODE_ENV: production

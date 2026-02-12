@@ -79,8 +79,11 @@ read -rsp "  GitHub Token (read:packages + repo): " GH_TOKEN
 echo
 echo
 
-# GHCR Login
-echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_USER" --password-stdin
+# Docker Hub Login
+read -rp "  Docker Hub Username: " DH_USER
+read -rsp "  Docker Hub Token/Passwort: " DH_TOKEN
+echo
+echo "$DH_TOKEN" | docker login -u "$DH_USER" --password-stdin
 echo
 
 REPO_AUTH="https://${GH_USER}:${GH_TOKEN}@github.com/GastroPilot/GastroPilot.git"
@@ -150,10 +153,6 @@ else
     # Domain
     read -rp "  Domain (z.B. staging.gpilot.app): " DOMAIN
     BASE_URL="https://${DOMAIN}"
-
-    # GHCR
-    read -rp "  GitHub Username/Org fuer GHCR (lowercase): " GHCR_OWNER
-    echo
 
     # Secrets automatisch generieren
     echo "  Generiere Secrets..."
@@ -250,8 +249,7 @@ else
 # ==================== STACK ====================
 STACK_NAME=${STACK_NAME}
 
-# ==================== GHCR ====================
-GHCR_OWNER=${GHCR_OWNER}
+# ==================== IMAGE ====================
 IMAGE_TAG=${IMAGE_TAG}
 
 # ==================== POSTGRESQL ====================
