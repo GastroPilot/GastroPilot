@@ -1,0 +1,25 @@
+# Environment files (keep only .example files)
+.env
+.env.dev
+.env.test
+.env.prod
+.env.server
+.env.local
+.env.*.local
+
+# SSL Certificates (sollten nicht committed werden)
+ssl/*.pem
+ssl/*.key
+ssl/*.crt
+
+# Certbot / Let's Encrypt
+certbot/
+
+# Logs
+*.log
+logs/
+
+# Temp files
+*.tmp
+*.temp
+.DS_Store

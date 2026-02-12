@@ -1,0 +1,132 @@
+# ===========================================
+# GastroPilot - Local Development Environment
+# ===========================================
+# This docker-compose file sets up the complete development environment
+# including backend, frontend, and database with hot-reload support.
+#
+# Usage:
+#   docker compose -f docker-compose.dev.yml up
+#   or
+#   docker compose -f docker-compose.dev.yml up -d (detached mode)
+#
+# Stop:
+#   docker compose -f docker-compose.dev.yml down
+#
+# Prerequisites:
+#   1. Copy .env.dev.example to .env.dev
+#   2. Adjust values in .env.dev as needed
+#
+# Services:
+#   - Backend:  http://localhost:8000
+#   - Frontend: http://localhost:3001
+#   - Database: localhost:5432
+#
+# ===========================================
+
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:16-alpine
+    container_name: gastropilot-dev-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${DB_USER:-postgres}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-postgres}
+      - POSTGRES_DB=${DB_NAME:-gastropilot_dev}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres-dev-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-gastropilot_dev}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - gastropilot-dev
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: ./gastropilot-backend
+      dockerfile: Dockerfile
+    container_name: gastropilot-dev-backend
+    restart: unless-stopped
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    environment:
+      - ENV=development
+      - DATABASE_URL=postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@db:5432/${DB_NAME:-gastropilot_dev}?sslmode=disable
+      - JWT_SECRET=${JWT_SECRET:-dev-secret-key-change-in-production}
+      - SECRET_KEY=${SECRET_KEY:-dev-secret-change-in-production}
+      - CORS_ORIGINS=http://localhost:3000,http://localhost:3001,http://localhost:${FRONTEND_PORT:-3000}
+      - LOG_LEVEL=${LOG_LEVEL:-DEBUG}
+    volumes:
+      # Mount source code for hot reload
+      - ./gastropilot-backend/app:/app/app
+      - ./gastropilot-backend/scripts:/app/scripts
+    depends_on:
+      db:
+        condition: service_healthy
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - gastropilot-dev
+
+  # Next.js Frontend
+  frontend:
+    build:
+      context: ./gastropilot-frontend
+      dockerfile: Dockerfile
+      target: deps  # Only build dependencies stage for faster dev builds
+    container_name: gastropilot-dev-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-3001}:3001"
+    environment:
+      - NODE_ENV=development
+      - NEXT_PUBLIC_API_BASE_URL=http://localhost:${BACKEND_PORT:-8000}
+      - SSR_API_BASE_URL=http://backend:8000
+      - NEXT_PUBLIC_APP_VERSION=dev
+    volumes:
+      # Mount source code for hot reload
+      - ./gastropilot-frontend/app:/app/app
+      - ./gastropilot-frontend/components:/app/components
+      - ./gastropilot-frontend/lib:/app/lib
+      - ./gastropilot-frontend/hooks:/app/hooks
+      - ./gastropilot-frontend/public:/app/public
+      - ./gastropilot-frontend/next.config.ts:/app/next.config.ts
+      - ./gastropilot-frontend/tailwind.config.ts:/app/tailwind.config.ts
+      - ./gastropilot-frontend/postcss.config.mjs:/app/postcss.config.mjs
+      - ./gastropilot-frontend/tsconfig.json:/app/tsconfig.json
+      # Don't mount node_modules or .next (use container's versions)
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      - backend
+    working_dir: /app
+    command: sh -c "npm install && npm run dev"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - gastropilot-dev
+
+networks:
+  gastropilot-dev:
+    driver: bridge
+    name: gastropilot-dev
+
+volumes:
+  postgres-dev-data:
+    name: gastropilot-dev-postgres-data

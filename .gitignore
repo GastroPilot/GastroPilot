@@ -26,3 +26,8 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
+
+# Docker server environment
+docker/.env.server
+docker/ssl/
+docker/certbot/

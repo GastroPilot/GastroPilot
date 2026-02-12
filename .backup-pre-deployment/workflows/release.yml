@@ -313,11 +313,6 @@ jobs:
       name: production
       url: https://gpilot.app
     steps:
-      # Docker images are tagged :latest by the build-and-tag job above.
-      # Watchtower on the production server automatically polls for new :latest images
-      # and restarts containers — no SSH deploy needed for Docker.
-
-      # Deploy Expo Web App via SCP + SSH (Watchtower can't deploy static files)
       - name: Download App build artifacts
         uses: actions/download-artifact@v4
         with:
@@ -333,7 +328,7 @@ jobs:
           source: "expo-web-release.tar.gz"
           target: "/tmp/"
 
-      - name: Extract and deploy Expo Web App
+      - name: Deploy to Production Server
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SSH_HOST }}
@@ -341,28 +336,81 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             set -e
-            echo "=== Deploying Expo Web App for Release ${{ needs.release.outputs.release_tag }} ==="
+            echo "=== Deploying Release ${{ needs.release.outputs.release_tag }} to Production ==="
 
+            cd /opt/gastropilot/production
+
+            # Login to GitHub Container Registry
+            echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u duhrkah --password-stdin
+
+            # Update docker-compose to use the specific release tag
+            # Or pull latest which now points to the release
+            echo "Pulling release images..."
+            docker compose pull frontend backend
+
+            # Restart services
+            echo "Restarting services..."
+            docker compose up -d frontend backend
+
+            # Wait for services to start
+            echo "Waiting for services to start..."
+            sleep 15
+
+            # Health checks
+            echo "Running health checks..."
+
+            # Backend health check
+            for i in {1..10}; do
+              if curl -f -s http://localhost:8001/v1/health > /dev/null 2>&1; then
+                echo "Backend health check passed!"
+                break
+              fi
+              echo "Backend attempt $i/10 - waiting..."
+              sleep 3
+              if [ $i -eq 10 ]; then
+                echo "Backend health check failed!"
+                docker compose logs --tail=30 backend
+                exit 1
+              fi
+            done
+
+            # Frontend health check
+            for i in {1..10}; do
+              if curl -f -s http://localhost:3001 > /dev/null 2>&1; then
+                echo "Frontend health check passed!"
+                break
+              fi
+              echo "Frontend attempt $i/10 - waiting..."
+              sleep 3
+              if [ $i -eq 10 ]; then
+                echo "Frontend health check failed!"
+                docker compose logs --tail=30 frontend
+                exit 1
+              fi
+            done
+
+            # Deploy Expo Web App
+            echo "=== Deploying Expo Web App to Production ==="
             DEPLOY_PATH="/opt/gastropilot/production/expo-web"
             NEW_DIR="${DEPLOY_PATH}_new"
             BACKUP_DIR="${DEPLOY_PATH}_backup_$(date +%s)"
-
+            
             rm -rf "$NEW_DIR"
             mkdir -p "$NEW_DIR"
-
+            
             tar -xzf /tmp/expo-web-release.tar.gz -C "$NEW_DIR"
             rm -f /tmp/expo-web-release.tar.gz
-
+            
             if [ -d "$DEPLOY_PATH" ]; then
               mv "$DEPLOY_PATH" "$BACKUP_DIR" || true
             fi
-
+            
             mv "$NEW_DIR" "$DEPLOY_PATH"
-
+            
             # Cleanup old backups
             ls -dt ${DEPLOY_PATH}_backup_* 2>/dev/null | tail -n +4 | xargs rm -rf || true
 
-            echo "=== Expo Web App deployment for ${{ needs.release.outputs.release_tag }} successful! ==="
+            echo "=== Production deployment of ${{ needs.release.outputs.release_tag }} successful! ==="
 
       - name: Notify Slack about Release
         if: env.SLACK_WEBHOOK_URL != ''

@@ -261,15 +261,73 @@ jobs:
       name: staging
       url: https://staging.gpilot.app, https://api-staging.gpilot.app, https://app-staging.gpilot.app
     steps:
-      # Docker images are tagged :staging by the build jobs above.
-      # Watchtower on the staging server automatically polls for new :staging images
-      # and restarts containers — no SSH deploy needed.
-
       - name: Download App build artifacts
         uses: actions/download-artifact@v4
         with:
           name: expo-web-build
           path: ./
+
+      - name: Deploy to Staging Server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+            echo "=== Deploying to Staging Environment ==="
+
+            cd /opt/gastropilot/staging
+
+            # Login to GitHub Container Registry
+            echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u duhrkah --password-stdin
+
+            # Pull latest images
+            echo "Pulling latest images..."
+            docker compose pull frontend backend
+
+            # Restart services
+            echo "Restarting services..."
+            docker compose up -d frontend backend
+
+            # Wait for services to start
+            echo "Waiting for services to start..."
+            sleep 15
+
+            # Health checks
+            echo "Running health checks..."
+
+            # Backend health check
+            for i in {1..10}; do
+              if curl -f -s http://localhost:8003/v1/health > /dev/null 2>&1; then
+                echo "Backend health check passed!"
+                break
+              fi
+              echo "Backend attempt $i/10 - waiting..."
+              sleep 3
+              if [ $i -eq 10 ]; then
+                echo "Backend health check failed!"
+                docker compose logs --tail=30 backend
+                exit 1
+              fi
+            done
+
+            # Frontend health check
+            for i in {1..10}; do
+              if curl -f -s http://localhost:3003 > /dev/null 2>&1; then
+                echo "Frontend health check passed!"
+                break
+              fi
+              echo "Frontend attempt $i/10 - waiting..."
+              sleep 3
+              if [ $i -eq 10 ]; then
+                echo "Frontend health check failed!"
+                docker compose logs --tail=30 frontend
+                exit 1
+              fi
+            done
+
+            echo "=== Staging deployment successful! ==="
 
       - name: Deploy App to Staging
         uses: appleboy/scp-action@v0.1.7
@@ -326,34 +384,7 @@ jobs:
       name: demo
       url: https://demo.gpilot.app, https://api-demo.gpilot.app, https://app-demo.gpilot.app
     steps:
-      # Promote staging images to :demo tag on GHCR.
-      # Watchtower on the demo server polls for new :demo images and restarts automatically.
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: duhrkah
-          password: ${{ secrets.GHCR_TOKEN }}
-
-      - name: Promote staging images to demo
-        run: |
-          echo "=== Promoting staging images to demo ==="
-
-          # Pull staging images
-          docker pull ghcr.io/gastropilot/gastropilot-frontend:staging
-          docker pull ghcr.io/gastropilot/gastropilot-backend:staging
-
-          # Tag as demo
-          docker tag ghcr.io/gastropilot/gastropilot-frontend:staging ghcr.io/gastropilot/gastropilot-frontend:demo
-          docker tag ghcr.io/gastropilot/gastropilot-backend:staging ghcr.io/gastropilot/gastropilot-backend:demo
-
-          # Push demo tags — Watchtower on demo server will pick these up
-          docker push ghcr.io/gastropilot/gastropilot-frontend:demo
-          docker push ghcr.io/gastropilot/gastropilot-backend:demo
-
-          echo "=== Demo images pushed. Watchtower will deploy automatically. ==="
-
-      - name: Promote Expo Web App to Demo
+      - name: Deploy to Demo Server
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SSH_HOST }}
@@ -361,28 +392,86 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             set -e
+            echo "=== Deploying to Demo Environment ==="
+
+            cd /opt/gastropilot/demo
+
+            # Login to GitHub Container Registry
+            echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u duhrkah --password-stdin
+
+            # Pull staging images (promote staging to demo)
+            echo "Pulling staging images..."
+            docker pull ghcr.io/gastropilot/gastropilot-frontend:staging
+            docker pull ghcr.io/gastropilot/gastropilot-backend:staging
+
+            # Tag as demo
+            docker tag ghcr.io/gastropilot/gastropilot-frontend:staging ghcr.io/gastropilot/gastropilot-frontend:demo
+            docker tag ghcr.io/gastropilot/gastropilot-backend:staging ghcr.io/gastropilot/gastropilot-backend:demo
+
+            # Restart services
+            echo "Restarting services..."
+            docker compose up -d frontend backend
+
+            # Wait for services to start
+            echo "Waiting for services to start..."
+            sleep 15
+
+            # Health checks
+            echo "Running health checks..."
+
+            # Backend health check
+            for i in {1..10}; do
+              if curl -f -s http://localhost:8002/v1/health > /dev/null 2>&1; then
+                echo "Backend health check passed!"
+                break
+              fi
+              echo "Backend attempt $i/10 - waiting..."
+              sleep 3
+              if [ $i -eq 10 ]; then
+                echo "Backend health check failed!"
+                docker compose logs --tail=30 backend
+                exit 1
+              fi
+            done
+
+            # Frontend health check
+            for i in {1..10}; do
+              if curl -f -s http://localhost:3002 > /dev/null 2>&1; then
+                echo "Frontend health check passed!"
+                break
+              fi
+              echo "Frontend attempt $i/10 - waiting..."
+              sleep 3
+              if [ $i -eq 10 ]; then
+                echo "Frontend health check failed!"
+                docker compose logs --tail=30 frontend
+                exit 1
+              fi
+            done
+
+            # Promote Expo Web App from staging to demo
             echo "=== Promoting Expo Web App to Demo ==="
             STAGING_PATH="/opt/gastropilot/staging/expo-web"
             DEMO_PATH="/opt/gastropilot/demo/expo-web"
-
+            
             if [ -d "$STAGING_PATH" ]; then
               BACKUP_DIR="${DEMO_PATH}_backup_$(date +%s)"
-
+              
               if [ -d "$DEMO_PATH" ]; then
                 mv "$DEMO_PATH" "$BACKUP_DIR" || true
               fi
-
+              
               cp -r "$STAGING_PATH" "$DEMO_PATH"
-
+              
               # Cleanup old backups
               ls -dt ${DEMO_PATH}_backup_* 2>/dev/null | tail -n +4 | xargs rm -rf || true
-
+              
               echo "Expo Web App promoted to demo!"
             else
               echo "Warning: Staging Expo Web not found, skipping app promotion"
             fi
 
-            echo "=== Demo Expo Web deployment successful! ==="
+            echo "=== Demo deployment successful! ==="
 
   # ============================================
   # Deploy to Production (workflow_dispatch)
@@ -396,34 +485,7 @@ jobs:
       name: production
       url: https://gpilot.app, https://api.gpilot.app
     steps:
-      # Promote staging images to :latest tag on GHCR.
-      # Watchtower on the production server polls for new :latest images and restarts automatically.
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: duhrkah
-          password: ${{ secrets.GHCR_TOKEN }}
-
-      - name: Promote staging images to production
-        run: |
-          echo "=== Promoting staging images to production ==="
-
-          # Pull staging images
-          docker pull ghcr.io/gastropilot/gastropilot-frontend:staging
-          docker pull ghcr.io/gastropilot/gastropilot-backend:staging
-
-          # Tag as latest (production)
-          docker tag ghcr.io/gastropilot/gastropilot-frontend:staging ghcr.io/gastropilot/gastropilot-frontend:latest
-          docker tag ghcr.io/gastropilot/gastropilot-backend:staging ghcr.io/gastropilot/gastropilot-backend:latest
-
-          # Push latest tags — Watchtower on production server will pick these up
-          docker push ghcr.io/gastropilot/gastropilot-frontend:latest
-          docker push ghcr.io/gastropilot/gastropilot-backend:latest
-
-          echo "=== Production images pushed. Watchtower will deploy automatically. ==="
-
-      - name: Promote Expo Web App to Production
+      - name: Deploy to Production Server
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SSH_HOST }}
@@ -431,28 +493,86 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             set -e
+            echo "=== Deploying to Production Environment ==="
+
+            cd /opt/gastropilot/production
+
+            # Login to GitHub Container Registry
+            echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u duhrkah --password-stdin
+
+            # Pull staging images (promote staging to production)
+            echo "Pulling staging images..."
+            docker pull ghcr.io/gastropilot/gastropilot-frontend:staging
+            docker pull ghcr.io/gastropilot/gastropilot-backend:staging
+
+            # Tag as production
+            docker tag ghcr.io/gastropilot/gastropilot-frontend:staging ghcr.io/gastropilot/gastropilot-frontend:production
+            docker tag ghcr.io/gastropilot/gastropilot-backend:staging ghcr.io/gastropilot/gastropilot-backend:production
+
+            # Restart services
+            echo "Restarting services..."
+            docker compose up -d frontend backend
+
+            # Wait for services to start
+            echo "Waiting for services to start..."
+            sleep 15
+
+            # Health checks
+            echo "Running health checks..."
+
+            # Backend health check
+            for i in {1..10}; do
+              if curl -f -s http://localhost:8001/v1/health > /dev/null 2>&1; then
+                echo "Backend health check passed!"
+                break
+              fi
+              echo "Backend attempt $i/10 - waiting..."
+              sleep 3
+              if [ $i -eq 10 ]; then
+                echo "Backend health check failed!"
+                docker compose logs --tail=30 backend
+                exit 1
+              fi
+            done
+
+            # Frontend health check
+            for i in {1..10}; do
+              if curl -f -s http://localhost:3001 > /dev/null 2>&1; then
+                echo "Frontend health check passed!"
+                break
+              fi
+              echo "Frontend attempt $i/10 - waiting..."
+              sleep 3
+              if [ $i -eq 10 ]; then
+                echo "Frontend health check failed!"
+                docker compose logs --tail=30 frontend
+                exit 1
+              fi
+            done
+
+            # Promote Expo Web App from staging to production
             echo "=== Promoting Expo Web App to Production ==="
             STAGING_PATH="/opt/gastropilot/staging/expo-web"
             PROD_PATH="/opt/gastropilot/production/expo-web"
-
+            
             if [ -d "$STAGING_PATH" ]; then
               BACKUP_DIR="${PROD_PATH}_backup_$(date +%s)"
-
+              
               if [ -d "$PROD_PATH" ]; then
                 mv "$PROD_PATH" "$BACKUP_DIR" || true
               fi
-
+              
               cp -r "$STAGING_PATH" "$PROD_PATH"
-
+              
               # Cleanup old backups
               ls -dt ${PROD_PATH}_backup_* 2>/dev/null | tail -n +4 | xargs rm -rf || true
-
+              
               echo "Expo Web App promoted to production!"
             else
               echo "Warning: Staging Expo Web not found, skipping app promotion"
             fi
 
-            echo "=== Production Expo Web deployment successful! ==="
+            echo "=== Production deployment successful! ==="
 
   # ============================================
   # Notifications

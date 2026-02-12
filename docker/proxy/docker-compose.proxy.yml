@@ -1,0 +1,32 @@
+# Gemeinsamer nginx-Proxy fuer alle GastroPilot-Environments
+# Terminiert SSL und routet per Domain an die jeweiligen Stack-nginx-Container.
+#
+# Verwendung:
+#   docker compose -f docker-compose.proxy.yml up -d
+
+name: gastropilot-proxy
+
+services:
+  nginx:
+    image: nginx:alpine
+    container_name: gastropilot-proxy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./proxy.conf:/etc/nginx/nginx.conf:ro
+      - ./conf.d:/etc/nginx/conf.d:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    networks:
+      - gastropilot-proxy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  gastropilot-proxy:
+    name: gastropilot-proxy
+    driver: bridge
