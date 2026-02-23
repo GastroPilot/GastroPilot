@@ -4,6 +4,9 @@
 .env.test
 .env.prod
 .env.server
+.env.db
+.env.api
+.env.app
 .env.local
 .env.*.local
 

@@ -106,11 +106,6 @@ jobs:
             echo "${{ steps.bump.outputs.new_version }}" > gastropilot-backend/VERSION 2>/dev/null || true
           fi
 
-          # Update app VERSION
-          if [ -d "gastropilot-app" ]; then
-            echo "${{ steps.bump.outputs.new_version }}" > gastropilot-app/VERSION 2>/dev/null || true
-          fi
-
       - name: Generate changelog entry
         id: changelog
         run: |
@@ -232,76 +227,6 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # Build Expo Web App
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-          cache-dependency-path: './gastropilot-app/package-lock.json'
-
-      - name: Install App dependencies
-        working-directory: ./gastropilot-app
-        run: npm ci
-
-      - name: Build Expo Web App
-        working-directory: ./gastropilot-app
-        env:
-          EXPO_PUBLIC_API_URL: https://api.gpilot.app/v1
-          EXPO_PUBLIC_MOTHERSHIP_URL: https://mothership.gastropilot.org/prod/v1
-        run: npx expo export --platform web --output-dir dist
-
-      - name: Create App deployment package
-        working-directory: ./gastropilot-app
-        run: |
-          tar -czf ../expo-web-release.tar.gz -C dist .
-
-      - name: Upload App build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: expo-web-release-${{ needs.release.outputs.release_tag }}
-          path: expo-web-release.tar.gz
-          retention-days: 90
-
-  # ============================================
-  # iOS Build - Deaktiviert (Apple Developer License erforderlich)
-  # ============================================
-  # build-ios-release:
-  #   name: Build iOS App Release
-  #   runs-on: ubuntu-latest
-  #   needs: release
-  #   steps:
-  #     - name: Checkout code with submodules
-  #       uses: actions/checkout@v4
-  #       with:
-  #         submodules: recursive
-  #         ref: ${{ needs.release.outputs.release_tag }}
-  #         token: ${{ secrets.SUBMODULE_PAT }}
-  #
-  #     - name: Setup Node.js
-  #       uses: actions/setup-node@v4
-  #       with:
-  #         node-version: ${{ env.NODE_VERSION }}
-  #         cache: 'npm'
-  #         cache-dependency-path: './gastropilot-app/package-lock.json'
-  #
-  #     - name: Install dependencies
-  #       working-directory: ./gastropilot-app
-  #       run: npm ci
-  #
-  #     - name: Setup Expo CLI
-  #       uses: expo/expo-github-action@v8
-  #       with:
-  #         eas-version: latest
-  #         token: ${{ secrets.EXPO_TOKEN }}
-  #
-  #     - name: Build iOS App with EAS (Production)
-  #       working-directory: ./gastropilot-app
-  #       run: |
-  #         eas build --platform ios --profile production --non-interactive
-  #       env:
-  #         EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-
   deploy-production:
     name: Deploy to Production
     runs-on: ubuntu-latest
@@ -312,55 +237,7 @@ jobs:
       url: https://gpilot.app
     steps:
       # Docker images are tagged :latest by the build-and-tag job above.
-      # Watchtower on the production server automatically polls for new :latest images
-      # and restarts containers — no SSH deploy needed for Docker.
-
-      # Deploy Expo Web App via SCP + SSH (Watchtower can't deploy static files)
-      - name: Download App build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: expo-web-release-${{ needs.release.outputs.release_tag }}
-          path: ./
-
-      - name: Deploy App to Production
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          source: "expo-web-release.tar.gz"
-          target: "/tmp/"
-
-      - name: Extract and deploy Expo Web App
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: |
-            set -e
-            echo "=== Deploying Expo Web App for Release ${{ needs.release.outputs.release_tag }} ==="
-
-            DEPLOY_PATH="/opt/gastropilot/production/expo-web"
-            NEW_DIR="${DEPLOY_PATH}_new"
-            BACKUP_DIR="${DEPLOY_PATH}_backup_$(date +%s)"
-
-            rm -rf "$NEW_DIR"
-            mkdir -p "$NEW_DIR"
-
-            tar -xzf /tmp/expo-web-release.tar.gz -C "$NEW_DIR"
-            rm -f /tmp/expo-web-release.tar.gz
-
-            if [ -d "$DEPLOY_PATH" ]; then
-              mv "$DEPLOY_PATH" "$BACKUP_DIR" || true
-            fi
-
-            mv "$NEW_DIR" "$DEPLOY_PATH"
-
-            # Cleanup old backups
-            ls -dt ${DEPLOY_PATH}_backup_* 2>/dev/null | tail -n +4 | xargs rm -rf || true
-
-            echo "=== Expo Web App deployment for ${{ needs.release.outputs.release_tag }} successful! ==="
+      # Watchtower on the production server polls for new :latest images and restarts automatically.
 
       - name: Notify Slack about Release
         if: env.SLACK_WEBHOOK_URL != ''

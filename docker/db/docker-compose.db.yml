@@ -1,0 +1,78 @@
+# GastroPilot — Datenbank-Server (db-01.servecta.local)
+# PostgreSQL + Redis. Wird von api.servecta.local (Backend) genutzt.
+#
+# Images: Docker Hub (servecta/...)
+# Verwendung:
+#   docker compose -f docker-compose.db.yml --env-file .env.db up -d
+#
+# Voraussetzung: .env.db aus .env.db.example anlegen
+
+name: ${STACK_NAME:-gastropilot-db}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ${STACK_NAME:-gastropilot-db}-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-gastropilot}
+      POSTGRES_USER: ${POSTGRES_USER:-gastropilot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    expose:
+      - "5432"
+    restart: unless-stopped
+    networks:
+      - gastropilot-db
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-gastropilot}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
+        reservations:
+          cpus: "0.5"
+          memory: 256M
+
+  redis:
+    image: redis:7-alpine
+    container_name: ${STACK_NAME:-gastropilot-db}-redis
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - redis-data:/data
+    expose:
+      - "6379"
+    restart: unless-stopped
+    networks:
+      - gastropilot-db
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+
+volumes:
+  postgres-data:
+    driver: local
+  redis-data:
+    driver: local
+
+networks:
+  gastropilot-db:
+    driver: bridge

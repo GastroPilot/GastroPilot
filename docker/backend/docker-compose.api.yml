@@ -1,0 +1,95 @@
+# GastroPilot — Backend-Server (api.servecta.local)
+# Backend verbindet sich per privatem Netzwerk mit db-01.servecta.local.
+#
+# Images: Docker Hub (servecta/gastropilot-backend)
+# Verwendung:
+#   docker compose -f docker-compose.api.yml --env-file .env.api up -d
+#
+# Voraussetzung: .env.api aus .env.api.example anlegen
+#               db-01.servecta.local muss erreichbar sein (Postgres, Redis)
+
+name: ${STACK_NAME:-gastropilot-api}
+
+services:
+  backend:
+    image: servecta/gastropilot-backend:${IMAGE_TAG:-latest}
+    container_name: ${STACK_NAME:-gastropilot-api}-backend
+    environment:
+      ENV: production
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-gastropilot}:${POSTGRES_PASSWORD}@db-01.servecta.local:5432/${POSTGRES_DB:-gastropilot}?sslmode=disable}
+      DATABASE_TYPE: ${DATABASE_TYPE:-neon}
+      DATABASE_SSL_VERIFY: ${DATABASE_SSL_VERIFY:-false}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      JWT_ISSUER: ${JWT_ISSUER:-gastropilot}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-gastropilot-api}
+      JWT_LEEWAY_SECONDS: ${JWT_LEEWAY_SECONDS:-10}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-15}
+      REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-30}
+      BCRYPT_ROUNDS: ${BCRYPT_ROUNDS:-12}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      CORS_ALLOW_CREDENTIALS: ${CORS_ALLOW_CREDENTIALS:-true}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS},api.servecta.local,localhost
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-4}
+      GUNICORN_TIMEOUT: ${GUNICORN_TIMEOUT:-120}
+      RATE_LIMIT_WINDOW_SECONDS: ${RATE_LIMIT_WINDOW_SECONDS:-60}
+      RATE_LIMIT_MAX_ATTEMPTS: ${RATE_LIMIT_MAX_ATTEMPTS:-10}
+      HEALTH_CHECK_ENABLED: ${HEALTH_CHECK_ENABLED:-true}
+      REDIS_URL: ${REDIS_URL:-redis://:${REDIS_PASSWORD}@db-01.servecta.local:6379/0}
+      # E-Mail (SMTP)
+      SMTP_HOST: ${SMTP_HOST:-localhost}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_USE_TLS: ${SMTP_USE_TLS:-true}
+      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-noreply@gastropilot.de}
+      SMTP_FROM_NAME: ${SMTP_FROM_NAME:-GastroPilot}
+      # Mothership (Lizenzverwaltung)
+      MOTHERSHIP_API_URL: ${MOTHERSHIP_API_URL:-}
+      MOTHERSHIP_API_KEY: ${MOTHERSHIP_API_KEY:-}
+      # E-Mail-Tracking (Open/Click Tracking URLs)
+      BASE_URL: ${BASE_URL}
+      # OpenAI
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # Twilio (SMS/Telefonie)
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_PHONE_NUMBER: ${TWILIO_PHONE_NUMBER:-}
+      # SumUp (Zahlungen)
+      SUMUP_API_KEY: ${SUMUP_API_KEY:-}
+      SUMUP_MERCHANT_CODE: ${SUMUP_MERCHANT_CODE:-}
+      SUMUP_CALLBACK_URL: ${SUMUP_CALLBACK_URL:-}
+      # Sentry (Error Tracking)
+      SENTRY_DSN: ${SENTRY_DSN:-}
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 1G
+        reservations:
+          cpus: "1"
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - gastropilot-api
+
+networks:
+  gastropilot-api:
+    driver: bridge
