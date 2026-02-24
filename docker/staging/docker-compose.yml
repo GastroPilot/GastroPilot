@@ -1,6 +1,6 @@
-# GastroPilot — Staging-Server (stage.servecta.local)
-# Frontend stage.servecta.local.
-# Backend stage-api.servecta.local.
+# GastroPilot — Staging-Server (Single-Server Setup)
+# Frontend: stage.gpilot.org
+# Backend: stage-api.gpilot.app
 #
 # Images: Docker Hub (servecta/gastropilot-frontend)
 # Verwendung:
@@ -16,9 +16,9 @@ services:
     container_name: ${STACK_NAME:-gastropilot-staging}-frontend
     environment:
       NODE_ENV: production
-      # API über nginx-Proxy (Same-Origin): /v1 wird an api.servecta.local weitergeleitet
-      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-https://stage-api.servecta.local}
-      BASE_URL: ${BASE_URL:-https://stage.servecta.local}
+      # API über nginx-Proxy (Same-Origin): /v1 wird an Backend weitergeleitet
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-https://stage-api.gpilot.app}
+      BASE_URL: ${BASE_URL:-https://stage.gpilot.org}
       AUTH_SECRET: ${AUTH_SECRET}
       API_PREFIX: ${API_PREFIX:-/v1}
       NEXT_TELEMETRY_DISABLED: 1
@@ -49,8 +49,8 @@ services:
     networks:
       - gastropilot-staging
 
-  # nginx Reverse Proxy (proxied /v1 an api.servecta.local)
-  nginx: 
+  # nginx Reverse Proxy (Frontend + Backend auf einem Server)
+  nginx:
     image: nginx:alpine
     container_name: ${STACK_NAME:-gastropilot-staging}-nginx
     volumes:
@@ -58,11 +58,16 @@ services:
       - ./pages:/usr/share/nginx/html:ro
       - nginx-cache:/var/cache/nginx
     depends_on:
-      - frontend
+      frontend:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
     restart: unless-stopped
     networks:
-      - gastropilot-staging
-      - gastropilot-staging-proxy
+      gastropilot-staging:
+      gastropilot-staging-proxy:
+        aliases:
+          - stage.servecta.local
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1/health"]
       interval: 30s
@@ -87,7 +92,7 @@ services:
       BCRYPT_ROUNDS: ${BCRYPT_ROUNDS:-12}
       CORS_ORIGINS: ${CORS_ORIGINS}
       CORS_ALLOW_CREDENTIALS: ${CORS_ALLOW_CREDENTIALS:-true}
-      ALLOWED_HOSTS: ${ALLOWED_HOSTS},stage-api.servecta.local,localhost
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS},stage-api.gpilot.app,localhost
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       LOG_FORMAT: ${LOG_FORMAT:-json}
       GUNICORN_WORKERS: ${GUNICORN_WORKERS:-4}
@@ -108,7 +113,7 @@ services:
       MOTHERSHIP_API_URL: ${MOTHERSHIP_API_URL:-}
       MOTHERSHIP_API_KEY: ${MOTHERSHIP_API_KEY:-}
       # E-Mail-Tracking (Open/Click Tracking URLs)
-      BASE_URL: ${BASE_URL:-https://stage.servecta.local}
+      BASE_URL: ${BASE_URL:-https://stage.gpilot.org}
       # OpenAI
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       # Twilio (SMS/Telefonie)
@@ -146,8 +151,10 @@ services:
         max-size: "10m"
         max-file: "3"
     networks:
-      - gastropilot-staging
-      - gastropilot-staging-proxy
+      gastropilot-staging:
+      gastropilot-staging-proxy:
+        aliases:
+          - stage-api.servecta.local
 
   postgres:
     image: postgres:16-alpine
