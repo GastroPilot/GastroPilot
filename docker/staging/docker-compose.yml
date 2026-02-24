@@ -15,8 +15,8 @@
 name: ${STACK_NAME:-gastropilot-staging}
 
 x-common-env: &common-env
-  DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-gastropilot}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-gastropilot_staging}?sslmode=disable}
-  DATABASE_ADMIN_URL: ${DATABASE_ADMIN_URL:-postgresql+asyncpg://${POSTGRES_USER:-gastropilot}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-gastropilot_staging}?sslmode=disable}
+  DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-gastropilot}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-gastropilot_staging}}
+  DATABASE_ADMIN_URL: ${DATABASE_ADMIN_URL:-postgresql+asyncpg://${POSTGRES_USER:-gastropilot}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-gastropilot_staging}}
   JWT_SECRET: ${JWT_SECRET}
   JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
   REDIS_URL: ${REDIS_URL:-redis://:${REDIS_PASSWORD}@redis:6379/0}
