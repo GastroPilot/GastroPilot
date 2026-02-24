@@ -18,7 +18,7 @@ services:
       NODE_ENV: production
       # API über nginx-Proxy (Same-Origin): /v1 wird an Backend weitergeleitet
       NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-https://stage-api.gpilot.app}
-      BASE_URL: ${BASE_URL:-https://stage.gpilot.org}
+      BASE_URL: ${BASE_URL:-https://stage.gpilot.app}
       AUTH_SECRET: ${AUTH_SECRET}
       API_PREFIX: ${API_PREFIX:-/v1}
       NEXT_TELEMETRY_DISABLED: 1
