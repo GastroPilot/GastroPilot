@@ -1,5 +1,38 @@
 # Changelog
 
+## [0.12.0] - 2026-02-24
+
+### Changes
+- feat: microservices and new deployment (36494b3)
+- feat: microservices and new deployment (669de9f)
+- Update BASE_URL in docker-compose for staging (c578dda)
+- Update CORS origins and allowed hosts for staging (fb2d455)
+- fix: staging nginx config for single-server setup (c57f257)
+- Update Docker Hub organization to use secrets (5bd26a4)
+- chore: update gastropilot-backend submodule (98ae92e)
+- chore: update gastropilot-backend submodule to include ruff fixes (e005a1b)
+- chore: update submodules to latest commits (4878df4)
+- fix: added multi-tenancy and more (408b044)
+- fix & feat: added dark mode and theme switcher and fixed light theme in table and obstacle card (2e6a7ab)
+- feat: new design (a459191)
+- fix: added limiter exempt to /v1/health (fea1122)
+- fixed maintenance & coming soon (727a00f)
+- Delete docker/wait-for-services.sh (e2c3957)
+- Update docker-compose.server.yml (ee48b0e)
+- fix: added api ssl and nginx conf (7b3272c)
+- fix deploy with admin account (7307aeb)
+- fix: added redis dependencie (81c2deb)
+- fix: added redis dependencie (c6dad7d)
+- Update ci-cd.yml (1eacb02)
+- Update ci-cd.yml (52f67c6)
+- Update ci-cd.yml (8391cb6)
+- Update ci-cd.yml (1b84b0e)
+- fix: deployment with personal account as docker hub user (bdd9149)
+- fix: using now docker hub (aad2f89)
+- fix: deployment with org as ghcr user (54ea444)
+- updated deployment (77a17c7)
+
+
 ## [0.11.0] - 2026-02-01
 
 ### Changes
