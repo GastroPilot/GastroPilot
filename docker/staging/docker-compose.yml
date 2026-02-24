@@ -1,0 +1,359 @@
+# GastroPilot — Staging-Server (Microservices Setup)
+# Frontend: stage.gpilot.org
+# Backend: stage-api.gpilot.app
+#
+# Services:
+#   core (8000) — Auth, Users, Restaurants, Reservations, Menus, Vouchers, ...
+#   orders (8001) — Orders, Kitchen, Payments, WebSocket
+#   ai (8002) — Seating, Predictions, Recommendations
+#   notifications (8003) — Email, SMS, Push, WhatsApp
+#
+# Images: Docker Hub (servecta/gastropilot-*)
+# Verwendung:
+#   docker compose -f docker-compose.yml --env-file .env up -d
+
+name: ${STACK_NAME:-gastropilot-staging}
+
+x-common-env: &common-env
+  DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-gastropilot}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-gastropilot_staging}?sslmode=disable}
+  DATABASE_ADMIN_URL: ${DATABASE_ADMIN_URL:-postgresql+asyncpg://${POSTGRES_USER:-gastropilot}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-gastropilot_staging}?sslmode=disable}
+  JWT_SECRET: ${JWT_SECRET}
+  JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+  REDIS_URL: ${REDIS_URL:-redis://:${REDIS_PASSWORD}@redis:6379/0}
+  CORS_ORIGINS: ${CORS_ORIGINS}
+  CORS_ALLOW_CREDENTIALS: ${CORS_ALLOW_CREDENTIALS:-true}
+  SENTRY_DSN: ${SENTRY_DSN:-}
+
+x-common-deploy: &common-deploy
+  resources:
+    limits:
+      cpus: "1"
+      memory: 512M
+    reservations:
+      cpus: "0.5"
+      memory: 256M
+
+x-common-logging: &common-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  frontend:
+    image: servecta/gastropilot-web:${IMAGE_TAG:-staging}
+    container_name: ${STACK_NAME:-gastropilot-staging}-frontend
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-https://stage-api.gpilot.app}
+      BASE_URL: ${BASE_URL:-https://stage.gpilot.app}
+      AUTH_SECRET: ${AUTH_SECRET}
+      API_PREFIX: ${API_PREFIX:-/v1}
+      NEXT_TELEMETRY_DISABLED: 1
+    expose:
+      - "3000"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    deploy: *common-deploy
+    logging: *common-logging
+    networks:
+      - gastropilot-staging
+
+  # nginx Reverse Proxy — routes to correct microservice
+  nginx:
+    image: nginx:alpine
+    container_name: ${STACK_NAME:-gastropilot-staging}-nginx
+    volumes:
+      - ./nginx.app.conf:/etc/nginx/nginx.conf:ro
+      - ./pages:/usr/share/nginx/html:ro
+      - nginx-cache:/var/cache/nginx
+    depends_on:
+      frontend:
+        condition: service_healthy
+      core:
+        condition: service_healthy
+      orders:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      gastropilot-staging:
+      gastropilot-staging-proxy:
+        aliases:
+          - stage.servecta.local
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # --- Microservices ---
+
+  core:
+    image: servecta/gastropilot-core:${IMAGE_TAG:-staging}
+    container_name: ${STACK_NAME:-gastropilot-staging}-core
+    environment:
+      <<: *common-env
+      ENV: production
+      DATABASE_TYPE: ${DATABASE_TYPE:-neon}
+      DATABASE_SSL_VERIFY: ${DATABASE_SSL_VERIFY:-false}
+      JWT_ISSUER: ${JWT_ISSUER:-gastropilot}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-gastropilot-api}
+      JWT_LEEWAY_SECONDS: ${JWT_LEEWAY_SECONDS:-10}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-15}
+      REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-30}
+      BCRYPT_ROUNDS: ${BCRYPT_ROUNDS:-12}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS},stage-api.gpilot.app,localhost
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      MOTHERSHIP_API_URL: ${MOTHERSHIP_API_URL:-}
+      MOTHERSHIP_API_KEY: ${MOTHERSHIP_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      SUMUP_API_KEY: ${SUMUP_API_KEY:-}
+      SUMUP_MERCHANT_CODE: ${SUMUP_MERCHANT_CODE:-}
+      PLATFORM_ADMIN_EMAIL: ${PLATFORM_ADMIN_EMAIL:-admin@gastropilot.de}
+      PLATFORM_ADMIN_PASSWORD: ${PLATFORM_ADMIN_PASSWORD:-}
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 1G
+        reservations:
+          cpus: "1"
+          memory: 512M
+    logging: *common-logging
+    networks:
+      gastropilot-staging:
+      gastropilot-staging-proxy:
+        aliases:
+          - stage-api.servecta.local
+
+  orders:
+    image: servecta/gastropilot-orders:${IMAGE_TAG:-staging}
+    container_name: ${STACK_NAME:-gastropilot-staging}-orders
+    environment:
+      <<: *common-env
+      ENV: production
+      DATABASE_TYPE: ${DATABASE_TYPE:-neon}
+      DATABASE_SSL_VERIFY: ${DATABASE_SSL_VERIFY:-false}
+      SUMUP_API_KEY: ${SUMUP_API_KEY:-}
+      SUMUP_MERCHANT_CODE: ${SUMUP_MERCHANT_CODE:-}
+      SUMUP_WEBHOOK_URL: ${SUMUP_CALLBACK_URL:-}
+      SUMUP_WEBHOOK_SECRET: ${SUMUP_WEBHOOK_SECRET:-}
+    expose:
+      - "8001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8001/api/v1/orders/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    deploy: *common-deploy
+    logging: *common-logging
+    networks:
+      - gastropilot-staging
+
+  ai:
+    image: servecta/gastropilot-ai:${IMAGE_TAG:-staging}
+    container_name: ${STACK_NAME:-gastropilot-staging}-ai
+    environment:
+      ENV: production
+      REDIS_URL: ${REDIS_URL:-redis://:${REDIS_PASSWORD}@redis:6379/0}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      CORS_ALLOW_CREDENTIALS: ${CORS_ALLOW_CREDENTIALS:-true}
+    expose:
+      - "8002"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8002/api/v1/ai/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+    logging: *common-logging
+    networks:
+      - gastropilot-staging
+
+  notifications:
+    image: servecta/gastropilot-notifications:${IMAGE_TAG:-staging}
+    container_name: ${STACK_NAME:-gastropilot-staging}-notifications
+    environment:
+      ENVIRONMENT: production
+      REDIS_URL: ${REDIS_URL:-redis://:${REDIS_PASSWORD}@redis:6379/0}
+      CELERY_BROKER_URL: ${REDIS_URL:-redis://:${REDIS_PASSWORD}@redis:6379/1}
+      CELERY_RESULT_BACKEND: ${REDIS_URL:-redis://:${REDIS_PASSWORD}@redis:6379/2}
+      JWT_SECRET: ${JWT_SECRET}
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-smtp}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      SMTP_HOST: ${SMTP_HOST:-localhost}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      EMAIL_FROM: ${SMTP_FROM_EMAIL:-noreply@gastropilot.de}
+      EMAIL_FROM_NAME: ${SMTP_FROM_NAME:-GastroPilot}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_FROM_NUMBER: ${TWILIO_PHONE_NUMBER:-}
+      TWILIO_WHATSAPP_NUMBER: ${TWILIO_WHATSAPP_NUMBER:-}
+      WHATSAPP_ENABLED: ${WHATSAPP_ENABLED:-false}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+    expose:
+      - "8003"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8003/api/v1/notifications/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+    logging: *common-logging
+    networks:
+      - gastropilot-staging
+
+  notifications-worker:
+    image: servecta/gastropilot-notifications:${IMAGE_TAG:-staging}
+    container_name: ${STACK_NAME:-gastropilot-staging}-notifications-worker
+    command: celery -A app.worker:celery_app worker --loglevel=info --concurrency=2
+    environment:
+      ENVIRONMENT: production
+      REDIS_URL: ${REDIS_URL:-redis://:${REDIS_PASSWORD}@redis:6379/0}
+      CELERY_BROKER_URL: ${REDIS_URL:-redis://:${REDIS_PASSWORD}@redis:6379/1}
+      CELERY_RESULT_BACKEND: ${REDIS_URL:-redis://:${REDIS_PASSWORD}@redis:6379/2}
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-smtp}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      SMTP_HOST: ${SMTP_HOST:-localhost}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      EMAIL_FROM: ${SMTP_FROM_EMAIL:-noreply@gastropilot.de}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_FROM_NUMBER: ${TWILIO_PHONE_NUMBER:-}
+    restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+    logging: *common-logging
+    networks:
+      - gastropilot-staging
+
+  # --- Infrastructure ---
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: ${STACK_NAME:-gastropilot-staging}-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-gastropilot_staging}
+      POSTGRES_USER: ${POSTGRES_USER:-gastropilot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    expose:
+      - "5432"
+    restart: unless-stopped
+    networks:
+      - gastropilot-staging
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-gastropilot}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
+        reservations:
+          cpus: "0.5"
+          memory: 256M
+
+  redis:
+    image: redis:7-alpine
+    container_name: ${STACK_NAME:-gastropilot-staging}-redis
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - redis-data:/data
+    expose:
+      - "6379"
+    restart: unless-stopped
+    networks:
+      - gastropilot-staging
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+
+volumes:
+  nginx-cache:
+    driver: local
+  postgres-data:
+    driver: local
+  redis-data:
+    driver: local
+
+networks:
+  gastropilot-staging:
+    driver: bridge
+  gastropilot-staging-proxy:
+    external: true

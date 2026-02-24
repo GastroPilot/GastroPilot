@@ -1,15 +1,18 @@
-# Gemeinsamer nginx-Proxy fuer alle GastroPilot-Environments
-# Terminiert SSL und routet per Domain an die jeweiligen Stack-nginx-Container.
+# Gemeinsamer nginx-Proxy fuer GastroPilot
+# Terminiert SSL und routet per Domain.
+#
+# Single-Server: Routet an Stack-nginx (gastropilot-nginx)
+# Verteilt: Routet stage.servecta.local -> frontend:80, stage-api.servecta.local -> backend:8000
 #
 # Verwendung:
 #   docker compose -f docker-compose.proxy.yml up -d
 
-name: gastropilot-proxy
+name: gastropilot-staging-proxy
 
 services:
   nginx:
     image: nginx:alpine
-    container_name: gastropilot-proxy
+    container_name: gastropilot-staging-proxy
     ports:
       - "80:80"
       - "443:443"
@@ -18,7 +21,7 @@ services:
       - ./conf.d:/etc/nginx/conf.d:ro
       - ./ssl:/etc/nginx/ssl:ro
     networks:
-      - gastropilot-proxy
+      - gastropilot-staging-proxy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1/health"]
@@ -27,6 +30,6 @@ services:
       retries: 3
 
 networks:
-  gastropilot-proxy:
-    name: gastropilot-proxy
+  gastropilot-staging-proxy:
+    name: gastropilot-staging-proxy
     driver: bridge

@@ -1,0 +1,696 @@
+-- GastroPilot PostgreSQL Schema
+-- Multi-Tenant Architecture with Row-Level Security
+
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+-- ============================================================
+-- ENUMS
+-- ============================================================
+
+DO $$ BEGIN
+    CREATE TYPE user_role AS ENUM (
+        'guest', 'owner', 'manager', 'staff', 'kitchen',
+        'platform_admin', 'platform_support', 'platform_analyst'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+    CREATE TYPE subscription_tier AS ENUM ('free', 'starter', 'professional', 'enterprise');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+    CREATE TYPE payment_provider AS ENUM ('stripe', 'sumup', 'both');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+    CREATE TYPE reservation_status AS ENUM ('pending', 'confirmed', 'seated', 'completed', 'canceled', 'no_show');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+    CREATE TYPE order_status AS ENUM ('open', 'sent_to_kitchen', 'in_preparation', 'ready', 'served', 'paid', 'canceled');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+    CREATE TYPE order_item_status AS ENUM ('pending', 'sent', 'in_preparation', 'ready', 'served', 'canceled');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+    CREATE TYPE payment_status AS ENUM ('unpaid', 'partial', 'paid');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+    CREATE TYPE auth_method AS ENUM ('pin', 'password');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+-- ============================================================
+-- PLATFORM-LEVEL TABLES (no tenant_id)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS restaurants (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(200) NOT NULL,
+    slug VARCHAR(100) UNIQUE,
+    address VARCHAR(500),
+    phone VARCHAR(50),
+    email VARCHAR(255),
+    description TEXT,
+    subscription_tier subscription_tier NOT NULL DEFAULT 'starter',
+    is_suspended BOOLEAN NOT NULL DEFAULT FALSE,
+    suspended_reason TEXT,
+    suspended_at TIMESTAMPTZ,
+    payment_provider payment_provider NOT NULL DEFAULT 'sumup',
+    stripe_customer_id VARCHAR(128),
+    stripe_subscription_id VARCHAR(128),
+    sumup_merchant_code VARCHAR(32),
+    sumup_api_key VARCHAR(255),
+    sumup_default_reader_id VARCHAR(64),
+    public_booking_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    booking_lead_time_hours INTEGER NOT NULL DEFAULT 2,
+    booking_max_party_size INTEGER NOT NULL DEFAULT 12,
+    booking_default_duration INTEGER NOT NULL DEFAULT 120,
+    opening_hours JSONB,
+    settings JSONB DEFAULT '{}',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_restaurants_slug ON restaurants(slug);
+CREATE INDEX IF NOT EXISTS idx_restaurants_tier ON restaurants(subscription_tier);
+
+CREATE TABLE IF NOT EXISTS guest_profiles (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    email VARCHAR(255) UNIQUE,
+    phone VARCHAR(32),
+    first_name VARCHAR(120) NOT NULL,
+    last_name VARCHAR(120) NOT NULL,
+    language VARCHAR(10) DEFAULT 'de',
+    birthday DATE,
+    company VARCHAR(200),
+    notes TEXT,
+    allergens JSONB DEFAULT '[]',
+    preferences JSONB DEFAULT '{}',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_guest_profiles_email ON guest_profiles(email);
+CREATE INDEX IF NOT EXISTS idx_guest_profiles_phone ON guest_profiles(phone);
+
+CREATE TABLE IF NOT EXISTS users (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID REFERENCES restaurants(id) ON DELETE CASCADE,
+    email VARCHAR(255),
+    password_hash VARCHAR(255),
+    pin_hash VARCHAR(255),
+    operator_number VARCHAR(4),
+    nfc_tag_id VARCHAR(64) UNIQUE,
+    first_name VARCHAR(120) NOT NULL,
+    last_name VARCHAR(120) NOT NULL,
+    role user_role NOT NULL DEFAULT 'staff',
+    auth_method auth_method NOT NULL DEFAULT 'pin',
+    guest_profile_id UUID REFERENCES guest_profiles(id) ON DELETE SET NULL,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    last_login_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_users_tenant_id ON users(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_unique ON users(email) WHERE email IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_operator_number_unique ON users(tenant_id, operator_number) WHERE operator_number IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash VARCHAR(64) UNIQUE NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    revoked_at TIMESTAMPTZ,
+    rotated_from_id UUID,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user_id ON refresh_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_expires_at ON refresh_tokens(expires_at);
+
+CREATE TABLE IF NOT EXISTS user_settings (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    settings JSONB NOT NULL DEFAULT '{}',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS platform_audit_log (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    admin_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    target_tenant_id UUID REFERENCES restaurants(id) ON DELETE SET NULL,
+    action VARCHAR(100) NOT NULL,
+    entity_type VARCHAR(50),
+    entity_id UUID,
+    description TEXT,
+    details JSONB,
+    ip_address VARCHAR(45),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_platform_audit_log_admin ON platform_audit_log(admin_user_id);
+CREATE INDEX IF NOT EXISTS idx_platform_audit_log_tenant ON platform_audit_log(target_tenant_id);
+CREATE INDEX IF NOT EXISTS idx_platform_audit_log_created ON platform_audit_log(created_at);
+
+-- ============================================================
+-- TENANT-SCOPED TABLES
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS areas (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+    name VARCHAR(120) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(tenant_id, name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_areas_tenant_id ON areas(tenant_id);
+
+CREATE TABLE IF NOT EXISTS tables (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+    area_id UUID REFERENCES areas(id) ON DELETE SET NULL,
+    number VARCHAR(50) NOT NULL,
+    capacity INTEGER NOT NULL,
+    shape VARCHAR(20) DEFAULT 'rectangle',
+    position_x FLOAT,
+    position_y FLOAT,
+    width FLOAT DEFAULT 120.0,
+    height FLOAT DEFAULT 120.0,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    is_joinable BOOLEAN NOT NULL DEFAULT FALSE,
+    join_group_id INTEGER,
+    is_outdoor BOOLEAN NOT NULL DEFAULT FALSE,
+    rotation INTEGER,
+    notes TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_tables_tenant_id ON tables(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_tables_area_id ON tables(area_id);
+
+CREATE TABLE IF NOT EXISTS table_day_configs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+    table_id UUID REFERENCES tables(id) ON DELETE CASCADE,
+    date DATE NOT NULL,
+    is_hidden BOOLEAN NOT NULL DEFAULT FALSE,
+    is_temporary BOOLEAN NOT NULL DEFAULT FALSE,
+    number VARCHAR(50),
+    capacity INTEGER,
+    shape VARCHAR(20),
+    position_x FLOAT,
+    position_y FLOAT,
+    width FLOAT,
+    height FLOAT,
+    is_active BOOLEAN,
+    color VARCHAR(16),
+    join_group_id INTEGER,
+    is_joinable BOOLEAN,
+    rotation INTEGER,
+    notes TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(tenant_id, table_id, date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_table_day_configs_tenant_id ON table_day_configs(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_table_day_configs_date ON table_day_configs(date);
+
+CREATE TABLE IF NOT EXISTS obstacles (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+    area_id UUID REFERENCES areas(id) ON DELETE SET NULL,
+    type VARCHAR(32) NOT NULL,
+    name VARCHAR(120),
+    x INTEGER NOT NULL,
+    y INTEGER NOT NULL,
+    width INTEGER NOT NULL,
+    height INTEGER NOT NULL,
+    rotation INTEGER,
+    blocking BOOLEAN NOT NULL DEFAULT TRUE,
+    color VARCHAR(16),
+    notes TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_obstacles_tenant_id ON obstacles(tenant_id);
+
+CREATE TABLE IF NOT EXISTS guests (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+    guest_profile_id UUID REFERENCES guest_profiles(id) ON DELETE SET NULL,
+    first_name VARCHAR(120) NOT NULL,
+    last_name VARCHAR(120) NOT NULL,
+    email VARCHAR(255),
+    phone VARCHAR(32),
+    language VARCHAR(10),
+    birthday TIMESTAMPTZ,
+    company VARCHAR(200),
+    type VARCHAR(50),
+    notes TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_guests_tenant_id ON guests(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_guests_email ON guests(email);
+
+CREATE TABLE IF NOT EXISTS reservations (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+    guest_id UUID REFERENCES guests(id) ON DELETE SET NULL,
+    table_id UUID REFERENCES tables(id) ON DELETE SET NULL,
+    start_at TIMESTAMPTZ NOT NULL,
+    end_at TIMESTAMPTZ NOT NULL,
+    party_size INTEGER NOT NULL,
+    status reservation_status NOT NULL DEFAULT 'pending',
+    channel VARCHAR(32) NOT NULL DEFAULT 'manual',
+    guest_name VARCHAR(240),
+    guest_email VARCHAR(255),
+    guest_phone VARCHAR(32),
+    confirmation_code VARCHAR(64),
+    special_requests TEXT,
+    notes TEXT,
+    tags JSONB DEFAULT '[]',
+    confirmed_at TIMESTAMPTZ,
+    seated_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    canceled_at TIMESTAMPTZ,
+    canceled_reason TEXT,
+    no_show_at TIMESTAMPTZ,
+    voucher_id UUID,
+    voucher_discount_amount FLOAT,
+    prepayment_required BOOLEAN NOT NULL DEFAULT FALSE,
+    prepayment_amount FLOAT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_reservations_tenant_id ON reservations(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_reservations_start_at ON reservations(start_at);
+CREATE INDEX IF NOT EXISTS idx_reservations_status ON reservations(status);
+CREATE INDEX IF NOT EXISTS idx_reservations_confirmation_code ON reservations(confirmation_code);
+CREATE INDEX IF NOT EXISTS idx_reservations_guest_id ON reservations(guest_id);
+
+CREATE TABLE IF NOT EXISTS reservation_tables (
+    reservation_id UUID REFERENCES reservations(id) ON DELETE CASCADE,
+    table_id UUID REFERENCES tables(id) ON DELETE RESTRICT,
+    tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+    start_at TIMESTAMPTZ NOT NULL,
+    end_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (reservation_id, table_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_reservation_tables_tenant_id ON reservation_tables(tenant_id);
+
+CREATE TABLE IF NOT EXISTS blocks (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+    start_at TIMESTAMPTZ NOT NULL,
+    end_at TIMESTAMPTZ NOT NULL,
+    reason TEXT,
+    created_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_blocks_tenant_id ON blocks(tenant_id);
+
+CREATE TABLE IF NOT EXISTS block_assignments (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    block_id UUID NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
+    table_id UUID NOT NULL REFERENCES tables(id) ON DELETE CASCADE,
+    tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(block_id, table_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_block_assignments_tenant_id ON block_assignments(tenant_id);
+
+CREATE TABLE IF NOT EXISTS waitlist (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+    guest_id UUID REFERENCES guests(id) ON DELETE CASCADE,
+    party_size INTEGER NOT NULL,
+    desired_from TIMESTAMPTZ,
+    desired_to TIMESTAMPTZ,
+    status VARCHAR(24) NOT NULL DEFAULT 'waiting',
+    priority INTEGER,
+    notified_at TIMESTAMPTZ,
+    confirmed_at TIMESTAMPTZ,
+    notes TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_waitlist_tenant_id ON waitlist(tenant_id);
+
+CREATE TABLE IF NOT EXISTS menu_categories (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+    name VARCHAR(100) NOT NULL,
+    description TEXT,
+    sort_order INTEGER DEFAULT 0,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_menu_categories_tenant_id ON menu_categories(tenant_id);
+
+CREATE TABLE IF NOT EXISTS menu_items (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+    category_id UUID REFERENCES menu_categories(id) ON DELETE SET NULL,
+    name VARCHAR(200) NOT NULL,
+    description TEXT,
+    price FLOAT NOT NULL,
+    tax_rate FLOAT NOT NULL DEFAULT 0.19,
+    is_available BOOLEAN NOT NULL DEFAULT TRUE,
+    sort_order INTEGER DEFAULT 0,
+    allergens JSONB DEFAULT '[]',
+    modifiers JSONB,
+    ingredients JSONB DEFAULT '[]',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_menu_items_tenant_id ON menu_items(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_menu_items_category_id ON menu_items(category_id);
+
+CREATE TABLE IF NOT EXISTS orders (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+    table_id UUID REFERENCES tables(id) ON DELETE SET NULL,
+    guest_id UUID REFERENCES guests(id) ON DELETE SET NULL,
+    reservation_id UUID REFERENCES reservations(id) ON DELETE SET NULL,
+    order_number VARCHAR(64) UNIQUE,
+    status order_status NOT NULL DEFAULT 'open',
+    party_size INTEGER,
+    subtotal FLOAT NOT NULL DEFAULT 0.0,
+    tax_amount_7 FLOAT NOT NULL DEFAULT 0.0,
+    tax_amount_19 FLOAT NOT NULL DEFAULT 0.0,
+    tax_amount FLOAT NOT NULL DEFAULT 0.0,
+    discount_amount FLOAT NOT NULL DEFAULT 0.0,
+    discount_percentage FLOAT,
+    tip_amount FLOAT NOT NULL DEFAULT 0.0,
+    total FLOAT NOT NULL DEFAULT 0.0,
+    payment_method VARCHAR(32),
+    payment_status payment_status NOT NULL DEFAULT 'unpaid',
+    split_payments JSONB,
+    notes TEXT,
+    special_requests TEXT,
+    opened_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    closed_at TIMESTAMPTZ,
+    paid_at TIMESTAMPTZ,
+    created_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_orders_tenant_id ON orders(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
+CREATE INDEX IF NOT EXISTS idx_orders_opened_at ON orders(opened_at);
+CREATE INDEX IF NOT EXISTS idx_orders_table_id ON orders(table_id);
+
+CREATE TABLE IF NOT EXISTS order_items (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    menu_item_id UUID REFERENCES menu_items(id) ON DELETE SET NULL,
+    item_name VARCHAR(200) NOT NULL,
+    item_description TEXT,
+    category VARCHAR(100),
+    quantity INTEGER NOT NULL DEFAULT 1,
+    unit_price FLOAT NOT NULL,
+    total_price FLOAT NOT NULL,
+    tax_rate FLOAT NOT NULL DEFAULT 0.19,
+    status order_item_status NOT NULL DEFAULT 'pending',
+    notes TEXT,
+    sort_order INTEGER DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items(order_id);
+CREATE INDEX IF NOT EXISTS idx_order_items_menu_item_id ON order_items(menu_item_id);
+
+CREATE TABLE IF NOT EXISTS sumup_payments (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+    checkout_id VARCHAR(128),
+    client_transaction_id VARCHAR(128),
+    transaction_code VARCHAR(64),
+    transaction_id VARCHAR(128),
+    reader_id VARCHAR(64),
+    amount FLOAT NOT NULL,
+    currency VARCHAR(3) NOT NULL DEFAULT 'EUR',
+    status VARCHAR(32) NOT NULL DEFAULT 'pending',
+    webhook_data JSONB,
+    initiated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    completed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_sumup_payments_tenant_id ON sumup_payments(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_sumup_payments_order_id ON sumup_payments(order_id);
+CREATE INDEX IF NOT EXISTS idx_sumup_payments_checkout_id ON sumup_payments(checkout_id);
+
+CREATE TABLE IF NOT EXISTS vouchers (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+    code VARCHAR(64) UNIQUE NOT NULL,
+    name VARCHAR(240),
+    description TEXT,
+    type VARCHAR(32) NOT NULL DEFAULT 'fixed',
+    value FLOAT NOT NULL,
+    valid_from DATE,
+    valid_until DATE,
+    max_uses INTEGER,
+    used_count INTEGER NOT NULL DEFAULT 0,
+    min_order_value FLOAT,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_vouchers_tenant_id ON vouchers(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_vouchers_code ON vouchers(code);
+
+CREATE TABLE IF NOT EXISTS upsell_packages (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+    name VARCHAR(240) NOT NULL,
+    description TEXT,
+    price FLOAT NOT NULL,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    available_from_date DATE,
+    available_until_date DATE,
+    min_party_size INTEGER,
+    max_party_size INTEGER,
+    available_times JSONB,
+    available_weekdays JSONB,
+    image_url VARCHAR(512),
+    display_order INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_upsell_packages_tenant_id ON upsell_packages(tenant_id);
+
+CREATE TABLE IF NOT EXISTS reservation_prepayments (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    reservation_id UUID NOT NULL REFERENCES reservations(id) ON DELETE CASCADE,
+    tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+    amount FLOAT NOT NULL,
+    currency VARCHAR(3) NOT NULL DEFAULT 'EUR',
+    payment_provider VARCHAR(32) NOT NULL,
+    payment_id VARCHAR(128),
+    transaction_id VARCHAR(128),
+    status VARCHAR(32) NOT NULL DEFAULT 'pending',
+    payment_data JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    completed_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_reservation_prepayments_tenant_id ON reservation_prepayments(tenant_id);
+
+CREATE TABLE IF NOT EXISTS reservation_upsell_packages (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    reservation_id UUID NOT NULL REFERENCES reservations(id) ON DELETE CASCADE,
+    upsell_package_id UUID NOT NULL REFERENCES upsell_packages(id) ON DELETE CASCADE,
+    tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+    price_at_time FLOAT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(reservation_id, upsell_package_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_reservation_upsell_packages_tenant_id ON reservation_upsell_packages(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_reservation_upsell_packages_reservation_id ON reservation_upsell_packages(reservation_id);
+
+CREATE TABLE IF NOT EXISTS voucher_usage (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    voucher_id UUID NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
+    reservation_id UUID REFERENCES reservations(id) ON DELETE SET NULL,
+    tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+    used_by_email VARCHAR(255),
+    discount_amount FLOAT NOT NULL,
+    used_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_voucher_usage_tenant_id ON voucher_usage(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_voucher_usage_voucher_id ON voucher_usage(voucher_id);
+
+CREATE TABLE IF NOT EXISTS reservation_table_day_configs (
+    reservation_id UUID REFERENCES reservations(id) ON DELETE CASCADE,
+    table_day_config_id UUID REFERENCES table_day_configs(id) ON DELETE CASCADE,
+    tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+    start_at TIMESTAMPTZ NOT NULL,
+    end_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (reservation_id, table_day_config_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_reservation_table_day_configs_tenant_id ON reservation_table_day_configs(tenant_id);
+
+CREATE TABLE IF NOT EXISTS messages (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+    reservation_id UUID REFERENCES reservations(id) ON DELETE SET NULL,
+    guest_id UUID REFERENCES guests(id) ON DELETE SET NULL,
+    direction VARCHAR(32) NOT NULL,
+    channel VARCHAR(32) NOT NULL,
+    address VARCHAR(255) NOT NULL,
+    body TEXT NOT NULL,
+    status VARCHAR(16) NOT NULL DEFAULT 'queued',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_messages_tenant_id ON messages(tenant_id);
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    entity_type VARCHAR(50) NOT NULL,
+    entity_id UUID,
+    action VARCHAR(32) NOT NULL,
+    description TEXT,
+    details JSONB,
+    ip_address VARCHAR(45),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_logs_tenant_id ON audit_logs(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs(entity_type, entity_id);
+
+-- ============================================================
+-- DB USERS
+-- ============================================================
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'gastropilot_app') THEN
+        CREATE ROLE gastropilot_app WITH LOGIN PASSWORD 'gastropilot_app_password';
+    END IF;
+END $$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'gastropilot_admin') THEN
+        CREATE ROLE gastropilot_admin WITH LOGIN PASSWORD 'gastropilot_admin_password' BYPASSRLS;
+    END IF;
+END $$;
+
+GRANT CONNECT ON DATABASE gastropilot TO gastropilot_app, gastropilot_admin;
+GRANT USAGE ON SCHEMA public TO gastropilot_app, gastropilot_admin;
+-- gastropilot_admin braucht CREATE für Alembic-Migrationen (PostgreSQL 15+ entzieht CREATE standardmäßig)
+GRANT CREATE ON SCHEMA public TO gastropilot_admin;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO gastropilot_app, gastropilot_admin;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO gastropilot_app, gastropilot_admin;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO gastropilot_app, gastropilot_admin;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO gastropilot_app, gastropilot_admin;
+
+-- ============================================================
+-- UPDATED_AT TRIGGERS
+-- ============================================================
+
+CREATE OR REPLACE FUNCTION update_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DO $$ BEGIN
+    CREATE TRIGGER trg_restaurants_updated_at BEFORE UPDATE ON restaurants FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+    CREATE TRIGGER trg_users_updated_at BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+    CREATE TRIGGER trg_tables_updated_at BEFORE UPDATE ON tables FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+    CREATE TRIGGER trg_reservations_updated_at BEFORE UPDATE ON reservations FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+    CREATE TRIGGER trg_orders_updated_at BEFORE UPDATE ON orders FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+    CREATE TRIGGER trg_menu_items_updated_at BEFORE UPDATE ON menu_items FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+    CREATE TRIGGER trg_vouchers_updated_at BEFORE UPDATE ON vouchers FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+    CREATE TRIGGER trg_guest_profiles_updated_at BEFORE UPDATE ON guest_profiles FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+    CREATE TRIGGER trg_guests_updated_at BEFORE UPDATE ON guests FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+    CREATE TRIGGER trg_upsell_packages_updated_at BEFORE UPDATE ON upsell_packages FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+    CREATE TRIGGER trg_reservation_prepayments_updated_at BEFORE UPDATE ON reservation_prepayments FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+    CREATE TRIGGER trg_sumup_payments_updated_at BEFORE UPDATE ON sumup_payments FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+    CREATE TRIGGER trg_user_settings_updated_at BEFORE UPDATE ON user_settings FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+    CREATE TRIGGER trg_table_day_configs_updated_at BEFORE UPDATE ON table_day_configs FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+-- ============================================================
+-- ANALYTICS MATERIALIZED VIEW
+-- ============================================================
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS tenant_analytics AS
+SELECT
+    r.id AS tenant_id,
+    r.name AS tenant_name,
+    r.subscription_tier,
+    COUNT(DISTINCT u.id) AS user_count,
+    COUNT(DISTINCT res.id) AS reservation_count,
+    COUNT(DISTINCT o.id) AS order_count,
+    COALESCE(SUM(o.total), 0) AS total_revenue
+FROM restaurants r
+LEFT JOIN users u ON u.tenant_id = r.id
+LEFT JOIN reservations res ON res.tenant_id = r.id
+LEFT JOIN orders o ON o.tenant_id = r.id AND o.payment_status = 'paid'
+GROUP BY r.id, r.name, r.subscription_tier;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tenant_analytics_tenant_id ON tenant_analytics(tenant_id);
