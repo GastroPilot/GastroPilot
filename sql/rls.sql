@@ -23,6 +23,9 @@ ALTER TABLE sumup_payments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE vouchers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE upsell_packages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE reservation_prepayments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE reservation_upsell_packages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE voucher_usage ENABLE ROW LEVEL SECURITY;
+ALTER TABLE reservation_table_day_configs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
 
@@ -149,6 +152,18 @@ CREATE POLICY tenant_isolation ON reservation_prepayments
 
 -- messages
 CREATE POLICY tenant_isolation ON messages
+    USING (tenant_id = current_tenant_id());
+
+-- reservation_upsell_packages
+CREATE POLICY tenant_isolation ON reservation_upsell_packages
+    USING (tenant_id = current_tenant_id());
+
+-- voucher_usage
+CREATE POLICY tenant_isolation ON voucher_usage
+    USING (tenant_id = current_tenant_id());
+
+-- reservation_table_day_configs
+CREATE POLICY tenant_isolation ON reservation_table_day_configs
     USING (tenant_id = current_tenant_id());
 
 -- audit_logs

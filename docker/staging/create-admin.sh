@@ -1,71 +1,126 @@
 #!/bin/bash
-# GastroPilot: Admin-Account (Restaurantinhaber) erstellen
+# GastroPilot: Admin-Account erstellen (Microservices)
+# Erstellt einen User im Core-Service via docker exec.
 set -e
 
 STACK_NAME=$(grep -E '^STACK_NAME=' .env 2>/dev/null | cut -d= -f2)
-CONTAINER="${STACK_NAME:-gastropilot-staging}-backend"
+CONTAINER="${STACK_NAME:-gastropilot-staging}-core"
 
 echo "== Admin-Account erstellen =="
 echo
 
-read -rp "Bedienernummer (4-stellig) [0000]: " OPERATOR_NUMBER
-OPERATOR_NUMBER=${OPERATOR_NUMBER:-0000}
-read -rp "Vorname: " FIRST_NAME
-read -rp "Nachname: " LAST_NAME
-read -rsp "PIN (min. 6 Zeichen): " PIN
+echo "  Typ:"
+echo "    1) Platform-Admin (Zugriff auf alle Restaurants)"
+echo "    2) Restaurant-Owner (Zugriff auf ein Restaurant)"
+read -rp "  Auswahl [1/2]: " TYPE_CHOICE
 echo
 
-if [ ${#OPERATOR_NUMBER} -ne 4 ]; then
-    echo "Fehler: Bedienernummer muss genau 4 Zeichen lang sein."
-    exit 1
-fi
+if [ "$TYPE_CHOICE" = "1" ]; then
+    # Platform-Admin: E-Mail + Passwort
+    ROLE="platform_admin"
+    read -rp "E-Mail: " EMAIL
+    read -rp "Vorname: " FIRST_NAME
+    read -rp "Nachname: " LAST_NAME
+    read -rsp "Passwort (min. 8 Zeichen): " PASSWORD
+    echo
 
-if [ ${#PIN} -lt 6 ]; then
-    echo "Fehler: PIN muss mindestens 6 Zeichen lang sein."
-    exit 1
-fi
+    if [ ${#PASSWORD} -lt 8 ]; then
+        echo "Fehler: Passwort muss mindestens 8 Zeichen lang sein."
+        exit 1
+    fi
 
-echo
-echo "  Rolle:"
-echo "    1) restaurantinhaber (Standard-Admin)"
-echo "    2) servecta (Super-Admin)"
-read -rp "  Auswahl [1/2]: " ROLE_CHOICE
-if [ "$ROLE_CHOICE" = "2" ]; then
-    ROLE="servecta"
-else
-    ROLE="restaurantinhaber"
-fi
-
-docker exec \
-    -e ADMIN_OPERATOR_NUMBER="$OPERATOR_NUMBER" \
-    -e ADMIN_FIRST_NAME="$FIRST_NAME" \
-    -e ADMIN_LAST_NAME="$LAST_NAME" \
-    -e ADMIN_PIN="$PIN" \
-    -e ADMIN_ROLE="$ROLE" \
-    "$CONTAINER" python -c "
+    docker exec \
+        -e ADMIN_EMAIL="$EMAIL" \
+        -e ADMIN_FIRST_NAME="$FIRST_NAME" \
+        -e ADMIN_LAST_NAME="$LAST_NAME" \
+        -e ADMIN_PASSWORD="$PASSWORD" \
+        -e ADMIN_ROLE="$ROLE" \
+        "$CONTAINER" python -c "
 import asyncio, os
-from app.database.instance import async_session
-from app.database.models import User
-from app.auth import hash_password
+from app.core.database import get_session_factories
+from app.models.user import User
+from app.core.security import hash_password
 
 async def create_admin():
-    operator_number = os.environ['ADMIN_OPERATOR_NUMBER']
-    first_name = os.environ['ADMIN_FIRST_NAME'].strip()
-    last_name = os.environ['ADMIN_LAST_NAME'].strip()
-    pin = os.environ['ADMIN_PIN']
-    role = os.environ['ADMIN_ROLE']
-
-    async with async_session() as session:
+    factory, _ = get_session_factories()
+    async with factory() as session:
         async with session.begin():
             user = User(
-                operator_number=operator_number,
-                pin_hash=hash_password(pin),
-                first_name=first_name,
-                last_name=last_name,
-                role=role
+                email=os.environ['ADMIN_EMAIL'],
+                password_hash=hash_password(os.environ['ADMIN_PASSWORD']),
+                first_name=os.environ['ADMIN_FIRST_NAME'].strip(),
+                last_name=os.environ['ADMIN_LAST_NAME'].strip(),
+                role=os.environ['ADMIN_ROLE'],
+                auth_method='password',
+                is_active=True,
             )
             session.add(user)
-    print(f'Admin-Account erstellt: {first_name} {last_name} (Bediener {operator_number}, Rolle: {role})')
+    print(f'Platform-Admin erstellt: {user.first_name} {user.last_name} ({user.email})')
 
 asyncio.run(create_admin())
 "
+
+else
+    # Restaurant-Owner: Bedienernummer + PIN
+    ROLE="owner"
+    read -rp "Restaurant-Slug: " TENANT_SLUG
+    read -rp "Bedienernummer (4-stellig) [0001]: " OPERATOR_NUMBER
+    OPERATOR_NUMBER=${OPERATOR_NUMBER:-0001}
+    read -rp "Vorname: " FIRST_NAME
+    read -rp "Nachname: " LAST_NAME
+    read -rsp "PIN (min. 6 Zeichen): " PIN
+    echo
+
+    if [ ${#OPERATOR_NUMBER} -ne 4 ]; then
+        echo "Fehler: Bedienernummer muss genau 4 Zeichen lang sein."
+        exit 1
+    fi
+
+    if [ ${#PIN} -lt 6 ]; then
+        echo "Fehler: PIN muss mindestens 6 Zeichen lang sein."
+        exit 1
+    fi
+
+    docker exec \
+        -e ADMIN_SLUG="$TENANT_SLUG" \
+        -e ADMIN_OPERATOR_NUMBER="$OPERATOR_NUMBER" \
+        -e ADMIN_FIRST_NAME="$FIRST_NAME" \
+        -e ADMIN_LAST_NAME="$LAST_NAME" \
+        -e ADMIN_PIN="$PIN" \
+        -e ADMIN_ROLE="$ROLE" \
+        "$CONTAINER" python -c "
+import asyncio, os
+from sqlalchemy import select
+from app.core.database import get_session_factories
+from app.models.user import User
+from app.models.restaurant import Restaurant
+from app.core.security import hash_pin
+
+async def create_owner():
+    factory, _ = get_session_factories()
+    slug = os.environ['ADMIN_SLUG']
+
+    async with factory() as session:
+        result = await session.execute(select(Restaurant).where(Restaurant.slug == slug))
+        restaurant = result.scalar_one_or_none()
+        if not restaurant:
+            print(f'Fehler: Restaurant mit Slug \"{slug}\" nicht gefunden.')
+            return
+
+        async with session.begin():
+            user = User(
+                tenant_id=restaurant.id,
+                operator_number=os.environ['ADMIN_OPERATOR_NUMBER'],
+                pin_hash=hash_pin(os.environ['ADMIN_PIN']),
+                first_name=os.environ['ADMIN_FIRST_NAME'].strip(),
+                last_name=os.environ['ADMIN_LAST_NAME'].strip(),
+                role=os.environ['ADMIN_ROLE'],
+                auth_method='pin',
+                is_active=True,
+            )
+            session.add(user)
+    print(f'Owner erstellt: {user.first_name} {user.last_name} (Bediener {user.operator_number}, Restaurant: {slug})')
+
+asyncio.run(create_owner())
+"
+fi

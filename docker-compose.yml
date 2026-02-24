@@ -59,8 +59,8 @@ services:
   # ---------------------------------------------------------------------------
   core:
     build:
-      context: ./gastropilot-backend/services/core
-      dockerfile: Dockerfile
+      context: ./gastropilot-backend
+      dockerfile: services/core/Dockerfile
     container_name: gp-core
     restart: unless-stopped
     env_file: ./gastropilot-backend/services/core/.env
@@ -92,8 +92,8 @@ services:
   # ---------------------------------------------------------------------------
   orders:
     build:
-      context: ./gastropilot-backend/services/orders
-      dockerfile: Dockerfile
+      context: ./gastropilot-backend
+      dockerfile: services/orders/Dockerfile
     container_name: gp-orders
     restart: unless-stopped
     env_file: ./gastropilot-backend/services/orders/.env
@@ -125,8 +125,8 @@ services:
   # ---------------------------------------------------------------------------
   ai:
     build:
-      context: ./gastropilot-backend/services/ai
-      dockerfile: Dockerfile
+      context: ./gastropilot-backend
+      dockerfile: services/ai/Dockerfile
     container_name: gp-ai
     restart: unless-stopped
     env_file: ./gastropilot-backend/services/ai/.env
@@ -154,8 +154,8 @@ services:
   # ---------------------------------------------------------------------------
   notifications:
     build:
-      context: ./gastropilot-backend/services/notifications
-      dockerfile: Dockerfile
+      context: ./gastropilot-backend
+      dockerfile: services/notifications/Dockerfile
     container_name: gp-notifications
     restart: unless-stopped
     env_file: ./gastropilot-backend/services/notifications/.env
@@ -183,8 +183,8 @@ services:
   # Celery Worker für Notifications
   notifications-worker:
     build:
-      context: ./gastropilot-backend/services/notifications
-      dockerfile: Dockerfile
+      context: ./gastropilot-backend
+      dockerfile: services/notifications/Dockerfile
     container_name: gp-notifications-worker
     restart: unless-stopped
     env_file: ./gastropilot-backend/services/notifications/.env

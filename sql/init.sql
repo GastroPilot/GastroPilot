@@ -523,6 +523,43 @@ CREATE TABLE IF NOT EXISTS reservation_prepayments (
 
 CREATE INDEX IF NOT EXISTS idx_reservation_prepayments_tenant_id ON reservation_prepayments(tenant_id);
 
+CREATE TABLE IF NOT EXISTS reservation_upsell_packages (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    reservation_id UUID NOT NULL REFERENCES reservations(id) ON DELETE CASCADE,
+    upsell_package_id UUID NOT NULL REFERENCES upsell_packages(id) ON DELETE CASCADE,
+    tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+    price_at_time FLOAT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(reservation_id, upsell_package_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_reservation_upsell_packages_tenant_id ON reservation_upsell_packages(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_reservation_upsell_packages_reservation_id ON reservation_upsell_packages(reservation_id);
+
+CREATE TABLE IF NOT EXISTS voucher_usage (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    voucher_id UUID NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
+    reservation_id UUID REFERENCES reservations(id) ON DELETE SET NULL,
+    tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+    used_by_email VARCHAR(255),
+    discount_amount FLOAT NOT NULL,
+    used_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_voucher_usage_tenant_id ON voucher_usage(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_voucher_usage_voucher_id ON voucher_usage(voucher_id);
+
+CREATE TABLE IF NOT EXISTS reservation_table_day_configs (
+    reservation_id UUID REFERENCES reservations(id) ON DELETE CASCADE,
+    table_day_config_id UUID REFERENCES table_day_configs(id) ON DELETE CASCADE,
+    tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+    start_at TIMESTAMPTZ NOT NULL,
+    end_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (reservation_id, table_day_config_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_reservation_table_day_configs_tenant_id ON reservation_table_day_configs(tenant_id);
+
 CREATE TABLE IF NOT EXISTS messages (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
@@ -620,6 +657,21 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN
     CREATE TRIGGER trg_guests_updated_at BEFORE UPDATE ON guests FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+    CREATE TRIGGER trg_upsell_packages_updated_at BEFORE UPDATE ON upsell_packages FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+    CREATE TRIGGER trg_reservation_prepayments_updated_at BEFORE UPDATE ON reservation_prepayments FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+    CREATE TRIGGER trg_sumup_payments_updated_at BEFORE UPDATE ON sumup_payments FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+    CREATE TRIGGER trg_user_settings_updated_at BEFORE UPDATE ON user_settings FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+    CREATE TRIGGER trg_table_day_configs_updated_at BEFORE UPDATE ON table_day_configs FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ============================================================
