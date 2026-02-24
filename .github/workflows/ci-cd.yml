@@ -14,7 +14,6 @@ on:
           - staging
 
 env:
-  DOCKERHUB_ORG: servecta
   NODE_VERSION: '20'
 
 jobs:
@@ -75,7 +74,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.DOCKERHUB_ORG }}/gastropilot-frontend
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-web
           tags: |
             type=raw,value=${{ needs.prepare.outputs.tag }}
             type=sha,prefix=${{ needs.prepare.outputs.tag }}-
@@ -130,7 +129,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.DOCKERHUB_ORG }}/gastropilot-backend
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-backend
           tags: |
             type=raw,value=${{ needs.prepare.outputs.tag }}
             type=sha,prefix=${{ needs.prepare.outputs.tag }}-
