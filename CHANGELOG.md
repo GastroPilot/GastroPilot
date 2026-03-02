@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.13.0] - 2026-03-02
+
+### Changes
+- Update submodules (8ef92bc)
+- feat: update submodules with email auth and staff-access page (8b42ec0)
+- fix: drop tenant_analytics view before migration (f443fa2)
+- fix: use DATABASE_ADMIN_URL consistently across all compose files (953bf73)
+- fix: DB config naming + remove snowfall animation (4b8723b)
+
+
 ## [0.12.0] - 2026-02-24
 
 ### Changes
