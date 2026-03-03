@@ -106,6 +106,13 @@ jobs:
             echo "${{ steps.bump.outputs.new_version }}" > gastropilot-backend/VERSION 2>/dev/null || true
           fi
 
+          # Update new app VERSION files
+          for dir in gastropilot-guest-portal gastropilot-kds gastropilot-table-order; do
+            if [ -d "$dir" ]; then
+              echo "${{ steps.bump.outputs.new_version }}" > "$dir/VERSION" 2>/dev/null || true
+            fi
+          done
+
       - name: Generate changelog entry
         id: changelog
         run: |
@@ -263,6 +270,45 @@ jobs:
             ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-notifications:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Build and push Guest Portal
+        uses: docker/build-push-action@v5
+        with:
+          context: ./gastropilot-guest-portal
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-guest-portal:${{ needs.release.outputs.release_tag }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-guest-portal:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            NEXT_PUBLIC_APP_VERSION=${{ needs.release.outputs.new_version }}
+
+      - name: Build and push KDS
+        uses: docker/build-push-action@v5
+        with:
+          context: ./gastropilot-kds
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-kds:${{ needs.release.outputs.release_tag }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-kds:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            NEXT_PUBLIC_APP_VERSION=${{ needs.release.outputs.new_version }}
+
+      - name: Build and push Table Order
+        uses: docker/build-push-action@v5
+        with:
+          context: ./gastropilot-table-order
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-table-order:${{ needs.release.outputs.release_tag }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-table-order:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            NEXT_PUBLIC_APP_VERSION=${{ needs.release.outputs.new_version }}
 
   deploy-production:
     name: Deploy to Production
