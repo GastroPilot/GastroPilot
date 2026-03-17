@@ -23,18 +23,26 @@ GastroPilot ist ein **Monorepo mit Git Submodules**:
 
 ```
 GastroPilot/
-├── .github/workflows/       # CI/CD Pipelines
-├── .github/ISSUE_TEMPLATE/  # Issue-Vorlagen für GitHub
-├── gastropilot-backend/     # FastAPI Backend (Submodule)
-├── gastropilot-frontend/    # Next.js Frontend (Submodule)
-├── gastropilot-app/         # Expo React Native App (Submodule)
-├── docker-compose.yml       # Staging-Umgebung
-├── VERSION                  # Aktuelle Version (semver)
-├── AUTHORS                  # Projektautoren
-├── LICENSE                  # Lizenzinformationen
-├── SECURITY.md              # Sicherheitsrichtlinien
-├── README.md                # Projektübersicht
-└── CHANGELOG.md             # Release-Historie
+├── .github/workflows/        # CI/CD Pipelines
+├── .github/ISSUE_TEMPLATE/   # Issue-Vorlagen für GitHub
+├── gastropilot-backend/      # FastAPI Backend Microservices (Submodule)
+├── gastropilot-frontend/     # Next.js Dashboard (Submodule)
+├── gastropilot-app/          # Expo React Native App (Submodule)
+├── gastropilot-guest-portal/ # Guest Web Portal (Submodule)
+├── gastropilot-kds/          # Kitchen Display System (Submodule)
+├── gastropilot-table-order/  # QR Table Ordering PWA (Submodule)
+├── demo/                     # Demo-Environment Reset & Seeds
+├── nginx/                    # API Gateway Konfiguration
+├── sql/                      # DB-Initialisierung & Migrations
+├── docker-compose.yml        # Staging-Umgebung
+├── docker-compose.dev.yml    # Entwicklungsumgebung
+├── docker-compose.prod.yml   # Produktionsumgebung
+├── VERSION                   # Aktuelle Version (semver)
+├── AUTHORS.md                # Projektautoren
+├── LICENSE                   # Lizenzinformationen
+├── SECURITY.md               # Sicherheitsrichtlinien
+├── README.md                 # Projektübersicht
+└── CHANGELOG.md              # Release-Historie
 ```
 
 ### Submodule-Repositories
@@ -44,6 +52,9 @@ GastroPilot/
 | Backend | `https://github.com/GastroPilot/gastropilot-backend.git` |
 | Frontend | `https://github.com/GastroPilot/gastropilot-frontend.git` |
 | App | `https://github.com/GastroPilot/gastropilot-app.git` |
+| Guest Portal | `https://github.com/GastroPilot/gastropilot-guest-portal.git` |
+| KDS | `https://github.com/GastroPilot/gastropilot-kds.git` |
+| Table Order | `https://github.com/GastroPilot/gastropilot-table-order.git` |
 
 ---
 
@@ -175,10 +186,6 @@ cd GastroPilot
 docker compose -f docker-compose.dev.yml --env-file .env.dev up -d
 ```
 
-> Hinweis: `uvicorn app.main:app` aus `gastropilot-backend` ohne `--app-dir services/core` startet den Legacy-Monolith unter `gastropilot-backend/app`.
->
-> Legacy-Referenz (nur Alt-System): `cd gastropilot-backend && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload`
-
 ### 3. Frontend einrichten
 
 ```bash
@@ -309,6 +316,9 @@ git submodule update --remote --merge
 git submodule update --remote gastropilot-backend
 git submodule update --remote gastropilot-frontend
 git submodule update --remote gastropilot-app
+git submodule update --remote gastropilot-guest-portal
+git submodule update --remote gastropilot-kds
+git submodule update --remote gastropilot-table-order
 ```
 
 ### In einem Submodule arbeiten (Feature)
@@ -484,12 +494,12 @@ npm run test:watch
 
 ### Umgebungen
 
-| Umgebung | Frontend | Backend | Datenbank | URL |
-|----------|----------|---------|-----------|-----|
-| Test | :3004 | :8004 | :5433 | test.gpilot.app |
-| Staging | :3003 | :8003 | :5433 | staging.gpilot.app |
-| Demo | :3002 | :8002 | :5432 | demo.gpilot.app |
-| Production | :3001 | :8001 | :5432 | gpilot.app |
+| Umgebung | URL | Compose-File |
+|----------|-----|-------------|
+| Development | localhost | `docker-compose.dev.yml` |
+| Staging | staging.gastropilot.de | `docker-compose.yml` |
+| Demo | demo.gastropilot.de | `docker-compose.yml` |
+| Production | gastropilot.de | `docker-compose.prod.yml` |
 
 ### Automatisches Deployment (CI/CD)
 

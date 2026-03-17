@@ -16,6 +16,3 @@
 [submodule "gastropilot-table-order"]
 	path = gastropilot-table-order
 	url = https://github.com/GastroPilot/gastropilot-table-order.git
-[submodule "gastropilot-guest-app"]
-	path = gastropilot-guest-app
-	url = https://github.com/GastroPilot/gastropilot-guest-app.git
