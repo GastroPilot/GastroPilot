@@ -23,35 +23,36 @@ GastroPilot ist ein **Monorepo mit Git Submodules**:
 
 ```
 GastroPilot/
-├── .github/workflows/        # CI/CD Pipelines
-├── .github/ISSUE_TEMPLATE/   # Issue-Vorlagen für GitHub
-├── gastropilot-backend/      # FastAPI Backend Microservices (Submodule)
-├── gastropilot-frontend/     # Next.js Dashboard (Submodule)
-├── gastropilot-app/          # Expo React Native App (Submodule)
-├── gastropilot-guest-portal/ # Guest Web Portal (Submodule)
-├── gastropilot-kds/          # Kitchen Display System (Submodule)
-├── gastropilot-table-order/  # QR Table Ordering PWA (Submodule)
-├── demo/                     # Demo-Environment Reset & Seeds
-├── nginx/                    # API Gateway Konfiguration
-├── sql/                      # DB-Initialisierung & Migrations
-├── docker-compose.yml        # Staging-Umgebung
-├── docker-compose.dev.yml    # Entwicklungsumgebung
-├── docker-compose.prod.yml   # Produktionsumgebung
-├── VERSION                   # Aktuelle Version (semver)
-├── AUTHORS.md                # Projektautoren
-├── LICENSE                   # Lizenzinformationen
-├── SECURITY.md               # Sicherheitsrichtlinien
-├── README.md                 # Projektübersicht
-└── CHANGELOG.md              # Release-Historie
+├── .github/workflows/   # CI/CD Pipelines
+├── .github/ISSUE_TEMPLATE/
+├── backend/             # FastAPI Backend Microservices (Submodule)
+├── web/                 # Next.js Dashboard (Submodule)
+├── restaurant-app/      # Expo React Native App (Submodule)
+├── guest-portal/        # Guest Web Portal (Submodule)
+├── kds/                 # Kitchen Display System (Submodule)
+├── table-order/         # QR Table Ordering PWA (Submodule)
+├── infra/
+│   ├── demo/            # Demo-Environment Reset & Seeds
+│   ├── nginx/           # API Gateway Konfiguration
+│   └── sql/             # DB-Initialisierung & Migrations
+├── docker-compose.yml       # Staging-Umgebung
+├── docker-compose.dev.yml   # Entwicklungsumgebung
+├── docker-compose.prod.yml  # Produktionsumgebung
+├── VERSION              # Aktuelle Version (semver)
+├── AUTHORS.md           # Projektautoren
+├── LICENSE              # Lizenzinformationen
+├── SECURITY.md          # Sicherheitsrichtlinien
+├── README.md            # Projektübersicht
+└── CHANGELOG.md         # Release-Historie
 ```
 
 ### Submodule-Repositories
 
 | Submodule | Repository |
 |-----------|------------|
-| Backend | `https://github.com/GastroPilot/gastropilot-backend.git` |
-| Frontend | `https://github.com/GastroPilot/gastropilot-frontend.git` |
-| App | `https://github.com/GastroPilot/gastropilot-app.git` |
+| Backend | `https://github.com/GastroPilot/backend.git` |
+| Frontend | `https://github.com/GastroPilot/web.git` |
+| App | `https://github.com/GastroPilot/restaurant-app.git` |
 | Guest Portal | `https://github.com/GastroPilot/gastropilot-guest-portal.git` |
 | KDS | `https://github.com/GastroPilot/gastropilot-kds.git` |
 | Table Order | `https://github.com/GastroPilot/gastropilot-table-order.git` |
@@ -122,7 +123,7 @@ git submodule update --init --recursive
 ### 2. Backend einrichten
 
 ```bash
-cd gastropilot-backend
+cd backend
 
 # Virtuelle Umgebung erstellen
 python -m venv venv
@@ -164,18 +165,18 @@ REDIS_URL=redis://localhost:6379/0
 
 ```bash
 # A) Nur Core (Auth/Tenant/Reservierungen etc., NICHT vollständige App-Funktion)
-cd gastropilot-backend/services/core
+cd backend/services/core
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 ```bash
 # B) Core + Orders (zwei Terminals)
 # Terminal 1
-cd gastropilot-backend/services/core
+cd backend/services/core
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 # Terminal 2
-cd gastropilot-backend/services/orders
+cd backend/services/orders
 uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
 ```
 
@@ -189,7 +190,7 @@ docker compose -f docker-compose.dev.yml --env-file .env.dev up -d
 ### 3. Frontend einrichten
 
 ```bash
-cd gastropilot-frontend
+cd web
 
 # Dependencies installieren
 npm install
@@ -220,7 +221,7 @@ NEXT_PUBLIC_API_PREFIX=api/v1
 ### 4. Mobile App einrichten
 
 ```bash
-cd gastropilot-app
+cd restaurant-app
 
 # Dependencies installieren
 npm install
@@ -313,9 +314,9 @@ docker compose -f docker-compose.dev.yml --env-file .env.dev up -d ai notificati
 git submodule update --remote --merge
 
 # Oder nur ein spezifisches Submodule
-git submodule update --remote gastropilot-backend
-git submodule update --remote gastropilot-frontend
-git submodule update --remote gastropilot-app
+git submodule update --remote backend
+git submodule update --remote web
+git submodule update --remote restaurant-app
 git submodule update --remote gastropilot-guest-portal
 git submodule update --remote gastropilot-kds
 git submodule update --remote gastropilot-table-order
@@ -324,7 +325,7 @@ git submodule update --remote gastropilot-table-order
 ### In einem Submodule arbeiten (Feature)
 
 ```bash
-cd gastropilot-backend
+cd backend
 
 # Eigenen Branch erstellen
 git checkout -b feature/mein-feature
@@ -339,7 +340,7 @@ git push origin feature/mein-feature
 ### In einem Submodule arbeiten (Bugfix)
 
 ```bash
-cd gastropilot-backend
+cd backend
 
 # Eigenen Branch erstellen
 git checkout -b fix/mein-bugfix
@@ -358,12 +359,12 @@ Nach dem Merge eines PR im Submodule:
 
 ```bash
 # Im Root-Verzeichnis
-cd gastropilot-backend
+cd backend
 git checkout main
 git pull
 
 cd ..
-git add gastropilot-backend
+git add backend
 git commit -m "chore: update backend submodule"
 git push
 ```
@@ -422,7 +423,7 @@ git commit -m "docs: update API documentation"
 ### Backend
 
 ```bash
-cd gastropilot-backend
+cd backend
 
 # Linting
 ruff check .
@@ -439,7 +440,7 @@ isort .
 ### Frontend
 
 ```bash
-cd gastropilot-frontend
+cd web
 
 # Linting
 npm run lint
@@ -461,7 +462,7 @@ npm run type-check
 ### Backend Tests
 
 ```bash
-cd gastropilot-backend
+cd backend
 
 # Alle Tests ausführen
 pytest
@@ -476,7 +477,7 @@ pytest tests/test_reservations.py -v
 ### Frontend Tests
 
 ```bash
-cd gastropilot-frontend
+cd web
 
 # Unit/Integration Tests
 npm run test
@@ -795,16 +796,16 @@ docker compose -f docker-compose.dev.yml --env-file .env.dev up -d
 
 ```bash
 # Dependency Updates prüfen
-cd gastropilot-backend && pip list --outdated
-cd gastropilot-frontend && npm outdated
-cd gastropilot-app && npm outdated
+cd backend && pip list --outdated
+cd web && npm outdated
+cd restaurant-app && npm outdated
 ```
 
 ### Mobile App
 
 ```bash
 # Mobile App starten
-cd gastropilot-app && npx expo start
+cd restaurant-app && npx expo start
 ```
 
 ---

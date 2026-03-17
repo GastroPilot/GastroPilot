@@ -69,7 +69,7 @@ jobs:
       - name: Build and push Frontend
         uses: docker/build-push-action@v5
         with:
-          context: ./gastropilot-frontend
+          context: ./web
           push: true
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-web:${{ steps.vars.outputs.tag }}
@@ -82,7 +82,7 @@ jobs:
       - name: Build and push Guest Portal
         uses: docker/build-push-action@v5
         with:
-          context: ./gastropilot-guest-portal
+          context: ./guest-portal
           push: true
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-guest-portal:${{ steps.vars.outputs.tag }}
@@ -95,7 +95,7 @@ jobs:
       - name: Build and push KDS
         uses: docker/build-push-action@v5
         with:
-          context: ./gastropilot-kds
+          context: ./kds
           push: true
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-kds:${{ steps.vars.outputs.tag }}
@@ -108,7 +108,7 @@ jobs:
       - name: Build and push Table Order
         uses: docker/build-push-action@v5
         with:
-          context: ./gastropilot-table-order
+          context: ./table-order
           push: true
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-table-order:${{ steps.vars.outputs.tag }}
@@ -125,8 +125,8 @@ jobs:
       - name: Build and push Core Service
         uses: docker/build-push-action@v5
         with:
-          context: ./gastropilot-backend
-          file: ./gastropilot-backend/services/core/Dockerfile
+          context: ./backend
+          file: ./backend/services/core/Dockerfile
           push: true
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-core:${{ steps.vars.outputs.tag }}
@@ -137,8 +137,8 @@ jobs:
       - name: Build and push Orders Service
         uses: docker/build-push-action@v5
         with:
-          context: ./gastropilot-backend
-          file: ./gastropilot-backend/services/orders/Dockerfile
+          context: ./backend
+          file: ./backend/services/orders/Dockerfile
           push: true
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-orders:${{ steps.vars.outputs.tag }}
@@ -149,8 +149,8 @@ jobs:
       - name: Build and push AI Service
         uses: docker/build-push-action@v5
         with:
-          context: ./gastropilot-backend
-          file: ./gastropilot-backend/services/ai/Dockerfile
+          context: ./backend
+          file: ./backend/services/ai/Dockerfile
           push: true
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-ai:${{ steps.vars.outputs.tag }}
@@ -161,8 +161,8 @@ jobs:
       - name: Build and push Notifications Service
         uses: docker/build-push-action@v5
         with:
-          context: ./gastropilot-backend
-          file: ./gastropilot-backend/services/notifications/Dockerfile
+          context: ./backend
+          file: ./backend/services/notifications/Dockerfile
           push: true
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-notifications:${{ steps.vars.outputs.tag }}

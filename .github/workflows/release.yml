@@ -97,17 +97,17 @@ jobs:
       - name: Update submodule VERSION files
         run: |
           # Update frontend VERSION
-          if [ -d "gastropilot-frontend" ]; then
-            echo "${{ steps.bump.outputs.new_version }}" > gastropilot-frontend/VERSION 2>/dev/null || true
+          if [ -d "web" ]; then
+            echo "${{ steps.bump.outputs.new_version }}" > web/VERSION 2>/dev/null || true
           fi
 
           # Update backend VERSION
-          if [ -d "gastropilot-backend" ]; then
-            echo "${{ steps.bump.outputs.new_version }}" > gastropilot-backend/VERSION 2>/dev/null || true
+          if [ -d "backend" ]; then
+            echo "${{ steps.bump.outputs.new_version }}" > backend/VERSION 2>/dev/null || true
           fi
 
           # Update new app VERSION files
-          for dir in gastropilot-guest-portal gastropilot-kds gastropilot-table-order; do
+          for dir in guest-portal kds table-order; do
             if [ -d "$dir" ]; then
               echo "${{ steps.bump.outputs.new_version }}" > "$dir/VERSION" 2>/dev/null || true
             fi
@@ -217,7 +217,7 @@ jobs:
       - name: Build and push Frontend
         uses: docker/build-push-action@v5
         with:
-          context: ./gastropilot-frontend
+          context: ./web
           push: true
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-web:${{ needs.release.outputs.release_tag }}
@@ -231,7 +231,7 @@ jobs:
       - name: Build and push Guest Portal
         uses: docker/build-push-action@v5
         with:
-          context: ./gastropilot-guest-portal
+          context: ./guest-portal
           push: true
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-guest-portal:${{ needs.release.outputs.release_tag }}
@@ -245,7 +245,7 @@ jobs:
       - name: Build and push KDS
         uses: docker/build-push-action@v5
         with:
-          context: ./gastropilot-kds
+          context: ./kds
           push: true
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-kds:${{ needs.release.outputs.release_tag }}
@@ -259,7 +259,7 @@ jobs:
       - name: Build and push Table Order
         uses: docker/build-push-action@v5
         with:
-          context: ./gastropilot-table-order
+          context: ./table-order
           push: true
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-table-order:${{ needs.release.outputs.release_tag }}
@@ -277,8 +277,8 @@ jobs:
       - name: Build and push Core Service
         uses: docker/build-push-action@v5
         with:
-          context: ./gastropilot-backend
-          file: ./gastropilot-backend/services/core/Dockerfile
+          context: ./backend
+          file: ./backend/services/core/Dockerfile
           push: true
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-core:${{ needs.release.outputs.release_tag }}
@@ -290,8 +290,8 @@ jobs:
       - name: Build and push Orders Service
         uses: docker/build-push-action@v5
         with:
-          context: ./gastropilot-backend
-          file: ./gastropilot-backend/services/orders/Dockerfile
+          context: ./backend
+          file: ./backend/services/orders/Dockerfile
           push: true
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-orders:${{ needs.release.outputs.release_tag }}
@@ -303,8 +303,8 @@ jobs:
       - name: Build and push AI Service
         uses: docker/build-push-action@v5
         with:
-          context: ./gastropilot-backend
-          file: ./gastropilot-backend/services/ai/Dockerfile
+          context: ./backend
+          file: ./backend/services/ai/Dockerfile
           push: true
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-ai:${{ needs.release.outputs.release_tag }}
@@ -316,8 +316,8 @@ jobs:
       - name: Build and push Notifications Service
         uses: docker/build-push-action@v5
         with:
-          context: ./gastropilot-backend
-          file: ./gastropilot-backend/services/notifications/Dockerfile
+          context: ./backend
+          file: ./backend/services/notifications/Dockerfile
           push: true
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-notifications:${{ needs.release.outputs.release_tag }}

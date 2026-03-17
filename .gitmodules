@@ -1,18 +1,18 @@
 [submodule "gastropilot-backend"]
-	path = gastropilot-backend
+	path = backend
 	url = https://github.com/GastroPilot/gastropilot-backend.git
 [submodule "gastropilot-frontend"]
-	path = gastropilot-frontend
+	path = web
 	url = https://github.com/GastroPilot/gastropilot-frontend.git
 [submodule "gastropilot-app"]
-	path = gastropilot-app
+	path = restaurant-app
 	url = https://github.com/GastroPilot/gastropilot-app.git
 [submodule "gastropilot-guest-portal"]
-	path = gastropilot-guest-portal
+	path = guest-portal
 	url = https://github.com/GastroPilot/gastropilot-guest-portal.git
 [submodule "gastropilot-kds"]
-	path = gastropilot-kds
+	path = kds
 	url = https://github.com/GastroPilot/gastropilot-kds.git
 [submodule "gastropilot-table-order"]
-	path = gastropilot-table-order
+	path = table-order
 	url = https://github.com/GastroPilot/gastropilot-table-order.git
