@@ -28,6 +28,8 @@ ALTER TABLE voucher_usage ENABLE ROW LEVEL SECURITY;
 ALTER TABLE reservation_table_day_configs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE reviews ENABLE ROW LEVEL SECURITY;
+ALTER TABLE devices ENABLE ROW LEVEL SECURITY;
 
 -- NOTE: users, restaurants, guest_profiles, platform_audit_log, refresh_tokens
 -- do NOT have RLS (managed at application level)
@@ -168,4 +170,12 @@ CREATE POLICY tenant_isolation ON reservation_table_day_configs
 
 -- audit_logs
 CREATE POLICY tenant_isolation ON audit_logs
+    USING (tenant_id = current_tenant_id());
+
+-- reviews
+CREATE POLICY tenant_isolation ON reviews
+    USING (tenant_id = current_tenant_id());
+
+-- devices
+CREATE POLICY tenant_isolation ON devices
     USING (tenant_id = current_tenant_id());

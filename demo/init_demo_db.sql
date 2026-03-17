@@ -1,50 +1,32 @@
--- GastroPilot PostgreSQL Schema
--- Multi-Tenant Architecture with Row-Level Security
+-- =============================================================================
+-- GastroPilot Demo DB — Konsolidiertes Schema
+-- Vereint: init.sql + migrations 001-009 + rls.sql + Staging-Spalten
+-- Komplett idempotent (IF NOT EXISTS / IF EXISTS überall)
+-- =============================================================================
 
+BEGIN;
+
+-- ============================================================
+-- EXTENSIONS
+-- ============================================================
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- ============================================================
 -- ENUMS
 -- ============================================================
-
-DO $$ BEGIN
-    CREATE TYPE user_role AS ENUM (
-        'guest', 'owner', 'manager', 'staff', 'kitchen',
-        'platform_admin', 'platform_support', 'platform_analyst'
-    );
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-
-DO $$ BEGIN
-    CREATE TYPE subscription_tier AS ENUM ('free', 'starter', 'professional', 'enterprise');
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-
-DO $$ BEGIN
-    CREATE TYPE payment_provider AS ENUM ('stripe', 'sumup', 'both');
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-
-DO $$ BEGIN
-    CREATE TYPE reservation_status AS ENUM ('pending', 'confirmed', 'seated', 'completed', 'canceled', 'no_show');
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-
-DO $$ BEGIN
-    CREATE TYPE order_status AS ENUM ('open', 'sent_to_kitchen', 'in_preparation', 'ready', 'served', 'paid', 'canceled');
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-
-DO $$ BEGIN
-    CREATE TYPE order_item_status AS ENUM ('pending', 'sent', 'in_preparation', 'ready', 'served', 'canceled');
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-
-DO $$ BEGIN
-    CREATE TYPE payment_status AS ENUM ('unpaid', 'partial', 'paid');
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-
-DO $$ BEGIN
-    CREATE TYPE auth_method AS ENUM ('pin', 'password');
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE user_role AS ENUM ('guest','owner','manager','staff','kitchen','platform_admin','platform_support','platform_analyst'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE subscription_tier AS ENUM ('free','starter','professional','enterprise'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE payment_provider AS ENUM ('stripe','sumup','both'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE reservation_status AS ENUM ('pending','confirmed','seated','completed','canceled','no_show'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE order_status AS ENUM ('open','sent_to_kitchen','in_preparation','ready','served','paid','canceled'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE order_item_status AS ENUM ('pending','sent','in_preparation','ready','served','canceled'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE payment_status AS ENUM ('unpaid','partial','paid'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE auth_method AS ENUM ('pin','password'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE order_source AS ENUM ('staff','qr_guest','guest_app'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ============================================================
--- PLATFORM-LEVEL TABLES (no tenant_id)
+-- TABLES (CREATE IF NOT EXISTS)
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS restaurants (
@@ -69,6 +51,8 @@ CREATE TABLE IF NOT EXISTS restaurants (
     subscription_status VARCHAR(32) DEFAULT 'active',
     subscription_current_period_end TIMESTAMPTZ,
     billing_email VARCHAR(255),
+    is_featured BOOLEAN NOT NULL DEFAULT FALSE,
+    featured_until TIMESTAMPTZ,
     public_booking_enabled BOOLEAN NOT NULL DEFAULT FALSE,
     booking_lead_time_hours INTEGER NOT NULL DEFAULT 2,
     booking_max_party_size INTEGER NOT NULL DEFAULT 12,
@@ -78,9 +62,6 @@ CREATE TABLE IF NOT EXISTS restaurants (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
-CREATE INDEX IF NOT EXISTS idx_restaurants_slug ON restaurants(slug);
-CREATE INDEX IF NOT EXISTS idx_restaurants_tier ON restaurants(subscription_tier);
 
 CREATE TABLE IF NOT EXISTS guest_profiles (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -99,12 +80,10 @@ CREATE TABLE IF NOT EXISTS guest_profiles (
     email_verification_token VARCHAR(255),
     password_reset_token VARCHAR(255),
     password_reset_expires_at TIMESTAMPTZ,
+    push_token TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
-CREATE INDEX IF NOT EXISTS idx_guest_profiles_email ON guest_profiles(email);
-CREATE INDEX IF NOT EXISTS idx_guest_profiles_phone ON guest_profiles(phone);
 
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -125,11 +104,6 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_users_tenant_id ON users(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_unique ON users(email) WHERE email IS NOT NULL;
-CREATE UNIQUE INDEX IF NOT EXISTS idx_users_operator_number_unique ON users(tenant_id, operator_number) WHERE operator_number IS NOT NULL;
-
 CREATE TABLE IF NOT EXISTS refresh_tokens (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -139,9 +113,6 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
     rotated_from_id UUID,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
-CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user_id ON refresh_tokens(user_id);
-CREATE INDEX IF NOT EXISTS idx_refresh_tokens_expires_at ON refresh_tokens(expires_at);
 
 CREATE TABLE IF NOT EXISTS user_settings (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -164,14 +135,6 @@ CREATE TABLE IF NOT EXISTS platform_audit_log (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_platform_audit_log_admin ON platform_audit_log(admin_user_id);
-CREATE INDEX IF NOT EXISTS idx_platform_audit_log_tenant ON platform_audit_log(target_tenant_id);
-CREATE INDEX IF NOT EXISTS idx_platform_audit_log_created ON platform_audit_log(created_at);
-
--- ============================================================
--- TENANT-SCOPED TABLES
--- ============================================================
-
 CREATE TABLE IF NOT EXISTS areas (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
@@ -179,8 +142,6 @@ CREATE TABLE IF NOT EXISTS areas (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(tenant_id, name)
 );
-
-CREATE INDEX IF NOT EXISTS idx_areas_tenant_id ON areas(tenant_id);
 
 CREATE TABLE IF NOT EXISTS tables (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -204,10 +165,6 @@ CREATE TABLE IF NOT EXISTS tables (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
-CREATE INDEX IF NOT EXISTS idx_tables_tenant_id ON tables(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_tables_area_id ON tables(area_id);
-CREATE INDEX IF NOT EXISTS idx_tables_token ON tables(table_token) WHERE table_token IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS table_day_configs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -234,9 +191,6 @@ CREATE TABLE IF NOT EXISTS table_day_configs (
     UNIQUE(tenant_id, table_id, date)
 );
 
-CREATE INDEX IF NOT EXISTS idx_table_day_configs_tenant_id ON table_day_configs(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_table_day_configs_date ON table_day_configs(date);
-
 CREATE TABLE IF NOT EXISTS obstacles (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
@@ -252,8 +206,6 @@ CREATE TABLE IF NOT EXISTS obstacles (
     color VARCHAR(16),
     notes TEXT
 );
-
-CREATE INDEX IF NOT EXISTS idx_obstacles_tenant_id ON obstacles(tenant_id);
 
 CREATE TABLE IF NOT EXISTS guests (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -271,9 +223,6 @@ CREATE TABLE IF NOT EXISTS guests (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
-CREATE INDEX IF NOT EXISTS idx_guests_tenant_id ON guests(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_guests_email ON guests(email);
 
 CREATE TABLE IF NOT EXISTS reservations (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -302,15 +251,13 @@ CREATE TABLE IF NOT EXISTS reservations (
     voucher_discount_amount FLOAT,
     prepayment_required BOOLEAN NOT NULL DEFAULT FALSE,
     prepayment_amount FLOAT,
+    reminder_sent BOOLEAN DEFAULT FALSE,
+    confirmation_sent BOOLEAN DEFAULT FALSE,
+    source TEXT DEFAULT 'manual',
+    external_id TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
-CREATE INDEX IF NOT EXISTS idx_reservations_tenant_id ON reservations(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_reservations_start_at ON reservations(start_at);
-CREATE INDEX IF NOT EXISTS idx_reservations_status ON reservations(status);
-CREATE INDEX IF NOT EXISTS idx_reservations_confirmation_code ON reservations(confirmation_code);
-CREATE INDEX IF NOT EXISTS idx_reservations_guest_id ON reservations(guest_id);
 
 CREATE TABLE IF NOT EXISTS reservation_tables (
     reservation_id UUID REFERENCES reservations(id) ON DELETE CASCADE,
@@ -321,8 +268,6 @@ CREATE TABLE IF NOT EXISTS reservation_tables (
     PRIMARY KEY (reservation_id, table_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_reservation_tables_tenant_id ON reservation_tables(tenant_id);
-
 CREATE TABLE IF NOT EXISTS blocks (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
@@ -332,8 +277,6 @@ CREATE TABLE IF NOT EXISTS blocks (
     created_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_blocks_tenant_id ON blocks(tenant_id);
-
 CREATE TABLE IF NOT EXISTS block_assignments (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     block_id UUID NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
@@ -342,8 +285,6 @@ CREATE TABLE IF NOT EXISTS block_assignments (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(block_id, table_id)
 );
-
-CREATE INDEX IF NOT EXISTS idx_block_assignments_tenant_id ON block_assignments(tenant_id);
 
 CREATE TABLE IF NOT EXISTS waitlist (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -359,12 +300,10 @@ CREATE TABLE IF NOT EXISTS waitlist (
     notes TEXT,
     tracking_token VARCHAR(64) UNIQUE,
     estimated_wait_minutes INTEGER,
+    phone VARCHAR(32),
     guest_name VARCHAR(200),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
-CREATE INDEX IF NOT EXISTS idx_waitlist_tenant_id ON waitlist(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_waitlist_tracking_token ON waitlist(tracking_token) WHERE tracking_token IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS menu_categories (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -376,8 +315,6 @@ CREATE TABLE IF NOT EXISTS menu_categories (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
-CREATE INDEX IF NOT EXISTS idx_menu_categories_tenant_id ON menu_categories(tenant_id);
 
 CREATE TABLE IF NOT EXISTS menu_items (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -396,9 +333,6 @@ CREATE TABLE IF NOT EXISTS menu_items (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_menu_items_tenant_id ON menu_items(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_menu_items_category_id ON menu_items(category_id);
-
 CREATE TABLE IF NOT EXISTS orders (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
@@ -414,6 +348,7 @@ CREATE TABLE IF NOT EXISTS orders (
     tax_amount FLOAT NOT NULL DEFAULT 0.0,
     discount_amount FLOAT NOT NULL DEFAULT 0.0,
     discount_percentage FLOAT,
+    discount_reason TEXT,
     tip_amount FLOAT NOT NULL DEFAULT 0.0,
     total FLOAT NOT NULL DEFAULT 0.0,
     payment_method VARCHAR(32),
@@ -424,20 +359,18 @@ CREATE TABLE IF NOT EXISTS orders (
     opened_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     closed_at TIMESTAMPTZ,
     paid_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    cancelled_at TIMESTAMPTZ,
+    cancelled_reason TEXT,
     created_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
     source VARCHAR(20) DEFAULT 'staff',
     session_id VARCHAR(64),
     guest_profile_id UUID REFERENCES guest_profiles(id) ON DELETE SET NULL,
+    guest_allergens JSONB,
+    guest_count INTEGER,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
-CREATE INDEX IF NOT EXISTS idx_orders_tenant_id ON orders(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_orders_session_id ON orders(session_id) WHERE session_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_orders_guest_profile_id ON orders(guest_profile_id) WHERE guest_profile_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
-CREATE INDEX IF NOT EXISTS idx_orders_opened_at ON orders(opened_at);
-CREATE INDEX IF NOT EXISTS idx_orders_table_id ON orders(table_id);
 
 CREATE TABLE IF NOT EXISTS order_items (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -455,13 +388,15 @@ CREATE TABLE IF NOT EXISTS order_items (
     sort_order INTEGER DEFAULT 0,
     course INTEGER NOT NULL DEFAULT 1,
     course_released_at TIMESTAMPTZ,
+    allergens JSONB,
+    sent_to_kitchen BOOLEAN DEFAULT FALSE,
+    sent_at TIMESTAMPTZ,
+    ready_at TIMESTAMPTZ,
+    served_at TIMESTAMPTZ,
+    special_requests TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
-CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items(order_id);
-CREATE INDEX IF NOT EXISTS idx_order_items_menu_item_id ON order_items(menu_item_id);
-CREATE INDEX IF NOT EXISTS idx_order_items_course ON order_items(order_id, course);
 
 CREATE TABLE IF NOT EXISTS sumup_payments (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -482,10 +417,6 @@ CREATE TABLE IF NOT EXISTS sumup_payments (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_sumup_payments_tenant_id ON sumup_payments(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_sumup_payments_order_id ON sumup_payments(order_id);
-CREATE INDEX IF NOT EXISTS idx_sumup_payments_checkout_id ON sumup_payments(checkout_id);
-
 CREATE TABLE IF NOT EXISTS vouchers (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
@@ -504,9 +435,6 @@ CREATE TABLE IF NOT EXISTS vouchers (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
-CREATE INDEX IF NOT EXISTS idx_vouchers_tenant_id ON vouchers(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_vouchers_code ON vouchers(code);
 
 CREATE TABLE IF NOT EXISTS upsell_packages (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -527,8 +455,6 @@ CREATE TABLE IF NOT EXISTS upsell_packages (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_upsell_packages_tenant_id ON upsell_packages(tenant_id);
-
 CREATE TABLE IF NOT EXISTS reservation_prepayments (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     reservation_id UUID NOT NULL REFERENCES reservations(id) ON DELETE CASCADE,
@@ -545,8 +471,6 @@ CREATE TABLE IF NOT EXISTS reservation_prepayments (
     completed_at TIMESTAMPTZ
 );
 
-CREATE INDEX IF NOT EXISTS idx_reservation_prepayments_tenant_id ON reservation_prepayments(tenant_id);
-
 CREATE TABLE IF NOT EXISTS reservation_upsell_packages (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     reservation_id UUID NOT NULL REFERENCES reservations(id) ON DELETE CASCADE,
@@ -556,9 +480,6 @@ CREATE TABLE IF NOT EXISTS reservation_upsell_packages (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(reservation_id, upsell_package_id)
 );
-
-CREATE INDEX IF NOT EXISTS idx_reservation_upsell_packages_tenant_id ON reservation_upsell_packages(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_reservation_upsell_packages_reservation_id ON reservation_upsell_packages(reservation_id);
 
 CREATE TABLE IF NOT EXISTS voucher_usage (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -570,9 +491,6 @@ CREATE TABLE IF NOT EXISTS voucher_usage (
     used_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_voucher_usage_tenant_id ON voucher_usage(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_voucher_usage_voucher_id ON voucher_usage(voucher_id);
-
 CREATE TABLE IF NOT EXISTS reservation_table_day_configs (
     reservation_id UUID REFERENCES reservations(id) ON DELETE CASCADE,
     table_day_config_id UUID REFERENCES table_day_configs(id) ON DELETE CASCADE,
@@ -581,8 +499,6 @@ CREATE TABLE IF NOT EXISTS reservation_table_day_configs (
     end_at TIMESTAMPTZ NOT NULL,
     PRIMARY KEY (reservation_id, table_day_config_id)
 );
-
-CREATE INDEX IF NOT EXISTS idx_reservation_table_day_configs_tenant_id ON reservation_table_day_configs(tenant_id);
 
 CREATE TABLE IF NOT EXISTS messages (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -597,8 +513,6 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_messages_tenant_id ON messages(tenant_id);
-
 CREATE TABLE IF NOT EXISTS audit_logs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
@@ -612,14 +526,6 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_audit_logs_tenant_id ON audit_logs(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at);
-CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs(entity_type, entity_id);
-
--- ============================================================
--- REVIEWS (Bewertungssystem)
--- ============================================================
-
 CREATE TABLE IF NOT EXISTS reviews (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
@@ -629,21 +535,16 @@ CREATE TABLE IF NOT EXISTS reviews (
     title VARCHAR(200),
     text TEXT,
     is_visible BOOLEAN NOT NULL DEFAULT TRUE,
+    is_verified BOOLEAN NOT NULL DEFAULT FALSE,
+    staff_reply TEXT,
+    staff_reply_at TIMESTAMPTZ,
+    staff_reply_by UUID REFERENCES users(id) ON DELETE SET NULL,
     moderated_at TIMESTAMPTZ,
     moderated_by UUID REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(tenant_id, guest_profile_id)
 );
-
-CREATE INDEX IF NOT EXISTS idx_reviews_tenant_id ON reviews(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_reviews_guest_profile_id ON reviews(guest_profile_id);
-CREATE INDEX IF NOT EXISTS idx_reviews_rating ON reviews(tenant_id, rating);
-CREATE INDEX IF NOT EXISTS idx_reviews_visible ON reviews(tenant_id, is_visible) WHERE is_visible = TRUE;
-
--- ============================================================
--- KDS DEVICES
--- ============================================================
 
 CREATE TABLE IF NOT EXISTS devices (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -656,38 +557,248 @@ CREATE TABLE IF NOT EXISTS devices (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS guest_favorites (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    guest_profile_id UUID NOT NULL REFERENCES guest_profiles(id) ON DELETE CASCADE,
+    restaurant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(guest_profile_id, restaurant_id)
+);
+
+CREATE TABLE IF NOT EXISTS notifications (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    guest_profile_id UUID REFERENCES guest_profiles(id) ON DELETE CASCADE,
+    tenant_id UUID REFERENCES restaurants(id) ON DELETE SET NULL,
+    type VARCHAR(64) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    body TEXT,
+    data JSONB DEFAULT '{}',
+    is_read BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- ============================================================
+-- ADD MISSING COLUMNS (idempotent for existing tables)
+-- ============================================================
+
+-- restaurants
+ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS stripe_price_id VARCHAR(128);
+ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS subscription_status VARCHAR(32) DEFAULT 'active';
+ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS subscription_current_period_end TIMESTAMPTZ;
+ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS billing_email VARCHAR(255);
+ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS subscription_tier subscription_tier NOT NULL DEFAULT 'starter';
+ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS is_suspended BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS suspended_reason TEXT;
+ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS is_featured BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS featured_until TIMESTAMPTZ;
+ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR(128);
+ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS stripe_subscription_id VARCHAR(128);
+
+-- guest_profiles
+ALTER TABLE guest_profiles ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255);
+ALTER TABLE guest_profiles ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE guest_profiles ADD COLUMN IF NOT EXISTS email_verification_token VARCHAR(255);
+ALTER TABLE guest_profiles ADD COLUMN IF NOT EXISTS password_reset_token VARCHAR(255);
+ALTER TABLE guest_profiles ADD COLUMN IF NOT EXISTS password_reset_expires_at TIMESTAMPTZ;
+ALTER TABLE guest_profiles ADD COLUMN IF NOT EXISTS push_token TEXT;
+
+-- tables
+ALTER TABLE tables ADD COLUMN IF NOT EXISTS table_token VARCHAR(64);
+ALTER TABLE tables ADD COLUMN IF NOT EXISTS token_created_at TIMESTAMPTZ;
+ALTER TABLE tables ADD COLUMN IF NOT EXISTS qr_code_url TEXT;
+
+-- orders
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS source VARCHAR(20) DEFAULT 'staff';
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS session_id VARCHAR(64);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS guest_profile_id UUID;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS guest_allergens JSONB;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS guest_count INTEGER;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_reason TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS cancelled_reason TEXT;
+
+-- order_items
+ALTER TABLE order_items ADD COLUMN IF NOT EXISTS course INTEGER DEFAULT 1;
+ALTER TABLE order_items ADD COLUMN IF NOT EXISTS course_released_at TIMESTAMPTZ;
+ALTER TABLE order_items ADD COLUMN IF NOT EXISTS allergens JSONB;
+ALTER TABLE order_items ADD COLUMN IF NOT EXISTS sent_to_kitchen BOOLEAN DEFAULT FALSE;
+ALTER TABLE order_items ADD COLUMN IF NOT EXISTS sent_at TIMESTAMPTZ;
+ALTER TABLE order_items ADD COLUMN IF NOT EXISTS ready_at TIMESTAMPTZ;
+ALTER TABLE order_items ADD COLUMN IF NOT EXISTS served_at TIMESTAMPTZ;
+ALTER TABLE order_items ADD COLUMN IF NOT EXISTS special_requests TEXT;
+
+-- waitlist
+ALTER TABLE waitlist ADD COLUMN IF NOT EXISTS tracking_token VARCHAR(64);
+ALTER TABLE waitlist ADD COLUMN IF NOT EXISTS estimated_wait_minutes INTEGER;
+ALTER TABLE waitlist ADD COLUMN IF NOT EXISTS phone VARCHAR(32);
+ALTER TABLE waitlist ADD COLUMN IF NOT EXISTS guest_name VARCHAR(200);
+
+-- reservations
+ALTER TABLE reservations ADD COLUMN IF NOT EXISTS reminder_sent BOOLEAN DEFAULT FALSE;
+ALTER TABLE reservations ADD COLUMN IF NOT EXISTS confirmation_sent BOOLEAN DEFAULT FALSE;
+ALTER TABLE reservations ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'manual';
+ALTER TABLE reservations ADD COLUMN IF NOT EXISTS external_id TEXT;
+ALTER TABLE reservations ADD COLUMN IF NOT EXISTS canceled_reason TEXT;
+
+-- reviews
+ALTER TABLE reviews ADD COLUMN IF NOT EXISTS is_verified BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE reviews ADD COLUMN IF NOT EXISTS staff_reply TEXT;
+ALTER TABLE reviews ADD COLUMN IF NOT EXISTS staff_reply_at TIMESTAMPTZ;
+ALTER TABLE reviews ADD COLUMN IF NOT EXISTS staff_reply_by UUID;
+
+-- devices
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS station VARCHAR(50) DEFAULT 'alle';
+
+-- ============================================================
+-- INDEXES
+-- ============================================================
+
+CREATE INDEX IF NOT EXISTS idx_restaurants_slug ON restaurants(slug);
+CREATE INDEX IF NOT EXISTS idx_guest_profiles_email ON guest_profiles(email);
+CREATE INDEX IF NOT EXISTS idx_guest_profiles_phone ON guest_profiles(phone);
+CREATE INDEX IF NOT EXISTS idx_users_tenant_id ON users(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user_id ON refresh_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_areas_tenant_id ON areas(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_tables_tenant_id ON tables(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_tables_area_id ON tables(area_id);
+CREATE INDEX IF NOT EXISTS idx_table_day_configs_tenant_id ON table_day_configs(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_table_day_configs_date ON table_day_configs(date);
+CREATE INDEX IF NOT EXISTS idx_obstacles_tenant_id ON obstacles(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_guests_tenant_id ON guests(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_reservations_tenant_id ON reservations(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_reservations_start_at ON reservations(start_at);
+CREATE INDEX IF NOT EXISTS idx_reservations_status ON reservations(status);
+CREATE INDEX IF NOT EXISTS idx_reservation_tables_tenant_id ON reservation_tables(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_blocks_tenant_id ON blocks(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_block_assignments_tenant_id ON block_assignments(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_waitlist_tenant_id ON waitlist(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_menu_categories_tenant_id ON menu_categories(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_menu_items_tenant_id ON menu_items(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_menu_items_category_id ON menu_items(category_id);
+CREATE INDEX IF NOT EXISTS idx_orders_tenant_id ON orders(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
+CREATE INDEX IF NOT EXISTS idx_orders_opened_at ON orders(opened_at);
+CREATE INDEX IF NOT EXISTS idx_orders_table_id ON orders(table_id);
+CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items(order_id);
+CREATE INDEX IF NOT EXISTS idx_order_items_menu_item_id ON order_items(menu_item_id);
+CREATE INDEX IF NOT EXISTS idx_order_items_course ON order_items(order_id, course);
+CREATE INDEX IF NOT EXISTS idx_sumup_payments_tenant_id ON sumup_payments(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_sumup_payments_order_id ON sumup_payments(order_id);
+CREATE INDEX IF NOT EXISTS idx_vouchers_tenant_id ON vouchers(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_vouchers_code ON vouchers(code);
+CREATE INDEX IF NOT EXISTS idx_upsell_packages_tenant_id ON upsell_packages(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_reservation_prepayments_tenant_id ON reservation_prepayments(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_reservation_upsell_packages_tenant_id ON reservation_upsell_packages(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_voucher_usage_tenant_id ON voucher_usage(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_voucher_usage_voucher_id ON voucher_usage(voucher_id);
+CREATE INDEX IF NOT EXISTS idx_reservation_table_day_configs_tenant_id ON reservation_table_day_configs(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_messages_tenant_id ON messages(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_tenant_id ON audit_logs(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at);
+CREATE INDEX IF NOT EXISTS idx_reviews_tenant_id ON reviews(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_reviews_guest_profile_id ON reviews(guest_profile_id);
 CREATE INDEX IF NOT EXISTS idx_devices_tenant ON devices(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_devices_token ON devices(device_token);
+CREATE INDEX IF NOT EXISTS idx_notifications_guest_profile_id ON notifications(guest_profile_id);
 
 -- ============================================================
--- DB USERS
+-- HELPER FUNCTIONS (RLS)
 -- ============================================================
 
-DO $$
+CREATE OR REPLACE FUNCTION current_tenant_id() RETURNS UUID AS $$
 BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'gastropilot_app') THEN
-        CREATE ROLE gastropilot_app WITH LOGIN PASSWORD 'gastropilot_app_password';
-    END IF;
+    RETURN current_setting('app.current_tenant', true)::UUID;
+EXCEPTION WHEN OTHERS THEN
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION set_tenant_context(p_tenant_id UUID, p_role TEXT)
+RETURNS VOID AS $$
+BEGIN
+    PERFORM set_config('app.current_tenant', p_tenant_id::TEXT, true);
+    PERFORM set_config('app.current_role', p_role, true);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION get_current_role() RETURNS TEXT AS $$
+BEGIN
+    RETURN current_setting('app.current_role', true);
+EXCEPTION WHEN OTHERS THEN
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
+
+-- ============================================================
+-- ENABLE RLS
+-- ============================================================
+
+ALTER TABLE areas ENABLE ROW LEVEL SECURITY;
+ALTER TABLE tables ENABLE ROW LEVEL SECURITY;
+ALTER TABLE table_day_configs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE obstacles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE guests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE reservations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE reservation_tables ENABLE ROW LEVEL SECURITY;
+ALTER TABLE blocks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE block_assignments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE waitlist ENABLE ROW LEVEL SECURITY;
+ALTER TABLE menu_categories ENABLE ROW LEVEL SECURITY;
+ALTER TABLE menu_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE order_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE sumup_payments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE vouchers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE upsell_packages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE reservation_prepayments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE reservation_upsell_packages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE voucher_usage ENABLE ROW LEVEL SECURITY;
+ALTER TABLE reservation_table_day_configs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE reviews ENABLE ROW LEVEL SECURITY;
+ALTER TABLE devices ENABLE ROW LEVEL SECURITY;
+
+-- Drop + recreate all tenant_isolation policies
+DO $$ DECLARE r RECORD;
+BEGIN
+    FOR r IN SELECT schemaname, tablename, policyname
+             FROM pg_policies WHERE policyname = 'tenant_isolation'
+    LOOP
+        EXECUTE format('DROP POLICY tenant_isolation ON %I.%I', r.schemaname, r.tablename);
+    END LOOP;
 END $$;
 
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'gastropilot_admin') THEN
-        CREATE ROLE gastropilot_admin WITH LOGIN PASSWORD 'gastropilot_admin_password' BYPASSRLS;
-    END IF;
-END $$;
-
-GRANT CONNECT ON DATABASE gastropilot TO gastropilot_app, gastropilot_admin;
-GRANT USAGE ON SCHEMA public TO gastropilot_app, gastropilot_admin;
--- gastropilot_admin braucht CREATE für Alembic-Migrationen (PostgreSQL 15+ entzieht CREATE standardmäßig)
-GRANT CREATE ON SCHEMA public TO gastropilot_admin;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO gastropilot_app, gastropilot_admin;
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO gastropilot_app, gastropilot_admin;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO gastropilot_app, gastropilot_admin;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO gastropilot_app, gastropilot_admin;
+CREATE POLICY tenant_isolation ON areas USING (tenant_id = current_tenant_id());
+CREATE POLICY tenant_isolation ON tables USING (tenant_id = current_tenant_id());
+CREATE POLICY tenant_isolation ON table_day_configs USING (tenant_id = current_tenant_id());
+CREATE POLICY tenant_isolation ON obstacles USING (tenant_id = current_tenant_id());
+CREATE POLICY tenant_isolation ON guests USING (tenant_id = current_tenant_id());
+CREATE POLICY tenant_isolation ON reservations USING (tenant_id = current_tenant_id());
+CREATE POLICY tenant_isolation ON reservation_tables USING (tenant_id = current_tenant_id());
+CREATE POLICY tenant_isolation ON blocks USING (tenant_id = current_tenant_id());
+CREATE POLICY tenant_isolation ON block_assignments USING (tenant_id = current_tenant_id());
+CREATE POLICY tenant_isolation ON waitlist USING (tenant_id = current_tenant_id());
+CREATE POLICY tenant_isolation ON menu_categories USING (tenant_id = current_tenant_id());
+CREATE POLICY tenant_isolation ON menu_items USING (tenant_id = current_tenant_id());
+CREATE POLICY tenant_isolation ON orders USING (tenant_id = current_tenant_id());
+CREATE POLICY tenant_isolation ON order_items USING (order_id IN (SELECT id FROM orders WHERE tenant_id = current_tenant_id()));
+CREATE POLICY tenant_isolation ON sumup_payments USING (tenant_id = current_tenant_id());
+CREATE POLICY tenant_isolation ON vouchers USING (tenant_id = current_tenant_id());
+CREATE POLICY tenant_isolation ON upsell_packages USING (tenant_id = current_tenant_id());
+CREATE POLICY tenant_isolation ON reservation_prepayments USING (tenant_id = current_tenant_id());
+CREATE POLICY tenant_isolation ON messages USING (tenant_id = current_tenant_id());
+CREATE POLICY tenant_isolation ON reservation_upsell_packages USING (tenant_id = current_tenant_id());
+CREATE POLICY tenant_isolation ON voucher_usage USING (tenant_id = current_tenant_id());
+CREATE POLICY tenant_isolation ON reservation_table_day_configs USING (tenant_id = current_tenant_id());
+CREATE POLICY tenant_isolation ON audit_logs USING (tenant_id = current_tenant_id());
+CREATE POLICY tenant_isolation ON reviews USING (tenant_id = current_tenant_id());
+CREATE POLICY tenant_isolation ON devices USING (tenant_id = current_tenant_id());
 
 -- ============================================================
--- UPDATED_AT TRIGGERS
+-- UPDATED_AT TRIGGER
 -- ============================================================
 
 CREATE OR REPLACE FUNCTION update_updated_at()
@@ -698,72 +809,36 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-DO $$ BEGIN
-    CREATE TRIGGER trg_restaurants_updated_at BEFORE UPDATE ON restaurants FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-DO $$ BEGIN
-    CREATE TRIGGER trg_users_updated_at BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-DO $$ BEGIN
-    CREATE TRIGGER trg_tables_updated_at BEFORE UPDATE ON tables FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-DO $$ BEGIN
-    CREATE TRIGGER trg_reservations_updated_at BEFORE UPDATE ON reservations FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-DO $$ BEGIN
-    CREATE TRIGGER trg_orders_updated_at BEFORE UPDATE ON orders FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-DO $$ BEGIN
-    CREATE TRIGGER trg_menu_items_updated_at BEFORE UPDATE ON menu_items FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-DO $$ BEGIN
-    CREATE TRIGGER trg_vouchers_updated_at BEFORE UPDATE ON vouchers FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-DO $$ BEGIN
-    CREATE TRIGGER trg_guest_profiles_updated_at BEFORE UPDATE ON guest_profiles FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-DO $$ BEGIN
-    CREATE TRIGGER trg_guests_updated_at BEFORE UPDATE ON guests FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-DO $$ BEGIN
-    CREATE TRIGGER trg_upsell_packages_updated_at BEFORE UPDATE ON upsell_packages FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-DO $$ BEGIN
-    CREATE TRIGGER trg_reservation_prepayments_updated_at BEFORE UPDATE ON reservation_prepayments FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-DO $$ BEGIN
-    CREATE TRIGGER trg_sumup_payments_updated_at BEFORE UPDATE ON sumup_payments FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-DO $$ BEGIN
-    CREATE TRIGGER trg_user_settings_updated_at BEFORE UPDATE ON user_settings FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-DO $$ BEGIN
-    CREATE TRIGGER trg_table_day_configs_updated_at BEFORE UPDATE ON table_day_configs FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-DO $$ BEGIN
-    CREATE TRIGGER trg_reviews_updated_at BEFORE UPDATE ON reviews FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-DO $$ BEGIN
-    CREATE TRIGGER trg_devices_updated_at BEFORE UPDATE ON devices FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TRIGGER trg_restaurants_updated_at BEFORE UPDATE ON restaurants FOR EACH ROW EXECUTE FUNCTION update_updated_at(); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TRIGGER trg_users_updated_at BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION update_updated_at(); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TRIGGER trg_tables_updated_at BEFORE UPDATE ON tables FOR EACH ROW EXECUTE FUNCTION update_updated_at(); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TRIGGER trg_reservations_updated_at BEFORE UPDATE ON reservations FOR EACH ROW EXECUTE FUNCTION update_updated_at(); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TRIGGER trg_orders_updated_at BEFORE UPDATE ON orders FOR EACH ROW EXECUTE FUNCTION update_updated_at(); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TRIGGER trg_menu_items_updated_at BEFORE UPDATE ON menu_items FOR EACH ROW EXECUTE FUNCTION update_updated_at(); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TRIGGER trg_vouchers_updated_at BEFORE UPDATE ON vouchers FOR EACH ROW EXECUTE FUNCTION update_updated_at(); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TRIGGER trg_guest_profiles_updated_at BEFORE UPDATE ON guest_profiles FOR EACH ROW EXECUTE FUNCTION update_updated_at(); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TRIGGER trg_guests_updated_at BEFORE UPDATE ON guests FOR EACH ROW EXECUTE FUNCTION update_updated_at(); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TRIGGER trg_upsell_packages_updated_at BEFORE UPDATE ON upsell_packages FOR EACH ROW EXECUTE FUNCTION update_updated_at(); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TRIGGER trg_reservation_prepayments_updated_at BEFORE UPDATE ON reservation_prepayments FOR EACH ROW EXECUTE FUNCTION update_updated_at(); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TRIGGER trg_sumup_payments_updated_at BEFORE UPDATE ON sumup_payments FOR EACH ROW EXECUTE FUNCTION update_updated_at(); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TRIGGER trg_user_settings_updated_at BEFORE UPDATE ON user_settings FOR EACH ROW EXECUTE FUNCTION update_updated_at(); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TRIGGER trg_table_day_configs_updated_at BEFORE UPDATE ON table_day_configs FOR EACH ROW EXECUTE FUNCTION update_updated_at(); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TRIGGER trg_reviews_updated_at BEFORE UPDATE ON reviews FOR EACH ROW EXECUTE FUNCTION update_updated_at(); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TRIGGER trg_devices_updated_at BEFORE UPDATE ON devices FOR EACH ROW EXECUTE FUNCTION update_updated_at(); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ============================================================
--- ANALYTICS MATERIALIZED VIEW
+-- VIEW
 -- ============================================================
 
-CREATE MATERIALIZED VIEW IF NOT EXISTS tenant_analytics AS
+CREATE OR REPLACE VIEW restaurant_ratings AS
 SELECT
-    r.id AS tenant_id,
-    r.name AS tenant_name,
-    r.subscription_tier,
-    COUNT(DISTINCT u.id) AS user_count,
-    COUNT(DISTINCT res.id) AS reservation_count,
-    COUNT(DISTINCT o.id) AS order_count,
-    COALESCE(SUM(o.total), 0) AS total_revenue
-FROM restaurants r
-LEFT JOIN users u ON u.tenant_id = r.id
-LEFT JOIN reservations res ON res.tenant_id = r.id
-LEFT JOIN orders o ON o.tenant_id = r.id AND o.payment_status = 'paid'
-GROUP BY r.id, r.name, r.subscription_tier;
+    r.tenant_id,
+    COUNT(*) AS review_count,
+    ROUND(AVG(r.rating)::numeric, 2) AS avg_rating,
+    COUNT(*) FILTER (WHERE r.rating >= 4) AS positive_count,
+    COUNT(*) FILTER (WHERE r.rating <= 2) AS negative_count
+FROM reviews r
+WHERE r.is_visible = TRUE
+GROUP BY r.tenant_id;
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_tenant_analytics_tenant_id ON tenant_analytics(tenant_id);
+COMMIT;
