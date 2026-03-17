@@ -35,9 +35,7 @@ GastroPilot/
 │   ├── demo/            # Demo-Environment Reset & Seeds
 │   ├── nginx/           # API Gateway Konfiguration
 │   └── sql/             # DB-Initialisierung & Migrations
-├── docker-compose.yml       # Staging-Umgebung
 ├── docker-compose.dev.yml   # Entwicklungsumgebung
-├── docker-compose.prod.yml  # Produktionsumgebung
 ├── VERSION              # Aktuelle Version (semver)
 ├── AUTHORS.md           # Projektautoren
 ├── LICENSE              # Lizenzinformationen
@@ -495,12 +493,13 @@ npm run test:watch
 
 ### Umgebungen
 
-| Umgebung | URL | Compose-File |
-|----------|-----|-------------|
-| Development | localhost | `docker-compose.dev.yml` |
-| Staging | staging.gastropilot.de | `docker-compose.yml` |
-| Demo | demo.gastropilot.de | `docker-compose.yml` |
-| Production | gastropilot.de | `docker-compose.prod.yml` |
+| Umgebung | URL | Deployment |
+|----------|-----|------------|
+| Development | localhost | `docker-compose.dev.yml` (lokal) |
+| Test | test.gastropilot.de | Automatisch via Submodule CI |
+| Staging | staging.gastropilot.de | Manuell via Deploy-Workflow |
+| Demo | demo.gastropilot.de | Manuell via Deploy-Workflow |
+| Production | gastropilot.de | Manuell via Release-Workflow |
 
 ### CI/CD Workflows
 
