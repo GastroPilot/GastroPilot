@@ -501,29 +501,53 @@ npm run test:watch
 | Demo | demo.gastropilot.de | `docker-compose.yml` |
 | Production | gastropilot.de | `docker-compose.prod.yml` |
 
-### Automatisches Deployment (CI/CD)
+### CI/CD Workflows
+
+#### Submodule CI/CD (automatisch)
+
+Jedes Submodule hat einen eigenen CI/CD-Workflow (`ci-cd.yml`). Bei Push auf `main` werden die Docker Images automatisch mit dem Tag `:test` gebaut und gepusht. Watchtower auf dem Test-Server aktualisiert die Container automatisch.
 
 ```
-Push auf main
+Push auf main (Submodule)
     ↓
 GitHub Actions: ci-cd.yml
-    ├── Backend bauen → Push zu ghcr.io
-    ├── Frontend bauen → Push zu ghcr.io
-    └── Deploy auf Staging
-        └── Health Checks
-            └── Slack Notification
+    ├── Lint & Build Check
+    └── Docker Build & Push → :test Tag
+        └── Watchtower → Test-Environment
 ```
 
-**Test:** Automatisch bei jedem Push mit `fix` oder `feat`-Präfix im Commit
+#### Deploy Workflow (manuell für Staging & Demo)
 
-**Staging:** Automatisch bei jedem Push auf `main`
+Für Staging und Demo wird der zentrale **Deploy**-Workflow im Haupt-Repo verwendet:
 
-**Demo/Production:** Manuell via GitHub Actions:
-
-1. Gehe zu **Actions** → **CI/CD Pipeline**
+1. Gehe zu **Actions** → **Deploy**
 2. Klicke auf **Run workflow**
-3. Wähle `demo` oder `production`
+3. Wähle:
+   - **Environment:** `staging` oder `demo`
+   - **Ref:** Branch oder Tag (z.B. `main`, `v0.13.0`)
+   - **Version:** App-Version als Text (wird als `NEXT_PUBLIC_APP_VERSION` übernommen)
 4. Klicke auf **Run workflow**
+
+Alle 8 Docker Images werden mit dem Environment-Tag (`:staging` oder `:demo`) gebaut und gepusht.
+
+#### Release Workflow (Production)
+
+Für Production wird der **Release**-Workflow verwendet. Die Release-Version wird automatisch als `NEXT_PUBLIC_APP_VERSION` übernommen.
+
+1. Gehe zu **Actions** → **Release**
+2. Wähle den Bump-Type (patch/minor/major)
+3. Optional: "Deploy to production" aktivieren
+
+Images werden mit `:v{version}`, `:latest` und `:production` getaggt.
+
+### Docker Image Tags pro Environment
+
+| Environment | Image Tag | Trigger |
+|-------------|-----------|---------|
+| Test | `:test` | Automatisch bei Push auf `main` (Submodule) |
+| Staging | `:staging` | Manuell via Deploy-Workflow |
+| Demo | `:demo` | Manuell via Deploy-Workflow |
+| Production | `:v{version}`, `:latest`, `:production` | Manuell via Release-Workflow |
 
 ### Manuelles Deployment
 
@@ -532,30 +556,18 @@ GitHub Actions: ci-cd.yml
 ssh user@server
 
 # Zum Umgebungsverzeichnis wechseln
-cd /opt/gastropilot/staging  # oder test/demo/production
-
-# Empfohlen (Staging): kontrolliertes Update inkl. Core-DB-Migration
-bash ./update-app.sh
+cd /opt/gastropilot/test  # oder staging/demo/production
 
 # Images pullen und neu starten
 docker compose pull
 docker compose up -d
 
-# Health Check
-curl http://localhost:8003/v1/health
-```
-
-Fallback (wenn `update-app.sh` nicht verfügbar ist):
-
-```bash
-docker compose pull
-docker compose up -d
+# DB-Migration (falls nötig)
 docker compose exec core alembic -c alembic.ini upgrade head
-```
 
-Hinweis:
-- In Staging sind `core` und `orders` für Watchtower auf `false` gesetzt.
-- Diese Services sollen nur über den kontrollierten Deploy-Flow aktualisiert werden, damit API- und DB-Schema-Stand konsistent bleiben.
+# Health Check
+curl http://localhost:8000/v1/health
+```
 
 ### Server-Struktur
 
