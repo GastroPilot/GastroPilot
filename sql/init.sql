@@ -49,20 +49,25 @@ CREATE TABLE IF NOT EXISTS restaurants (
     phone VARCHAR(50),
     email VARCHAR(255),
     description TEXT,
+    subscription_tier VARCHAR(32) DEFAULT 'free',
+    is_suspended BOOLEAN NOT NULL DEFAULT FALSE,
+    suspended_reason TEXT,
+    suspended_at TIMESTAMPTZ,
+    stripe_customer_id VARCHAR(128),
+    stripe_subscription_id VARCHAR(128),
+    stripe_price_id VARCHAR(128),
+    subscription_status VARCHAR(32) DEFAULT 'active',
+    subscription_current_period_end TIMESTAMPTZ,
+    billing_email VARCHAR(255),
+    sumup_merchant_code VARCHAR(32),
+    sumup_api_key VARCHAR(255),
+    sumup_default_reader_id VARCHAR(64),
     public_booking_enabled BOOLEAN NOT NULL DEFAULT FALSE,
     booking_lead_time_hours INTEGER NOT NULL DEFAULT 2,
     booking_max_party_size INTEGER NOT NULL DEFAULT 12,
     booking_default_duration INTEGER NOT NULL DEFAULT 120,
     opening_hours JSONB,
     settings JSONB DEFAULT '{}',
-    stripe_customer_id VARCHAR(128),
-    stripe_subscription_id VARCHAR(128),
-    stripe_price_id VARCHAR(128),
-    subscription_status VARCHAR(32) DEFAULT 'inactive',
-    subscription_current_period_end TIMESTAMPTZ,
-    billing_email VARCHAR(255),
-    subscription_tier VARCHAR(32) DEFAULT 'free',
-    is_suspended BOOLEAN NOT NULL DEFAULT FALSE,
     is_featured BOOLEAN NOT NULL DEFAULT FALSE,
     featured_until TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -79,11 +84,13 @@ CREATE TABLE IF NOT EXISTS guest_profiles (
     last_name VARCHAR(120) NOT NULL,
     language VARCHAR(10) DEFAULT 'de',
     notes TEXT,
+    allergens JSONB DEFAULT '[]',
+    preferences JSONB DEFAULT '{}',
     password_hash VARCHAR(255),
     email_verified BOOLEAN NOT NULL DEFAULT FALSE,
     email_verification_token VARCHAR(255),
-    allergen_profile JSONB DEFAULT '[]',
-    push_token VARCHAR(512),
+    password_reset_token VARCHAR(255),
+    password_reset_expires_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -184,7 +191,7 @@ CREATE TABLE IF NOT EXISTS tables (
     is_outdoor BOOLEAN NOT NULL DEFAULT FALSE,
     rotation INTEGER,
     notes TEXT,
-    table_token VARCHAR(64),
+    table_token VARCHAR(64) UNIQUE,
     token_created_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -192,7 +199,7 @@ CREATE TABLE IF NOT EXISTS tables (
 
 CREATE INDEX IF NOT EXISTS idx_tables_tenant_id ON tables(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_tables_area_id ON tables(area_id);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_tables_table_token ON tables(table_token);
+CREATE INDEX IF NOT EXISTS idx_tables_token ON tables(table_token) WHERE table_token IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS table_day_configs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -343,12 +350,14 @@ CREATE TABLE IF NOT EXISTS waitlist (
     notified_at TIMESTAMPTZ,
     confirmed_at TIMESTAMPTZ,
     notes TEXT,
-    tracking_token VARCHAR(64),
+    tracking_token VARCHAR(64) UNIQUE,
+    estimated_wait_minutes INTEGER,
+    guest_name VARCHAR(200),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_waitlist_tenant_id ON waitlist(tenant_id);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_waitlist_tracking_token ON waitlist(tracking_token);
+CREATE INDEX IF NOT EXISTS idx_waitlist_tracking_token ON waitlist(tracking_token) WHERE tracking_token IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS menu_categories (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -409,12 +418,16 @@ CREATE TABLE IF NOT EXISTS orders (
     closed_at TIMESTAMPTZ,
     paid_at TIMESTAMPTZ,
     created_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-    guest_allergens JSONB DEFAULT '[]',
+    source VARCHAR(20) DEFAULT 'staff',
+    session_id VARCHAR(64),
+    guest_profile_id UUID REFERENCES guest_profiles(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_orders_tenant_id ON orders(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_orders_session_id ON orders(session_id) WHERE session_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_orders_guest_profile_id ON orders(guest_profile_id) WHERE guest_profile_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
 CREATE INDEX IF NOT EXISTS idx_orders_opened_at ON orders(opened_at);
 CREATE INDEX IF NOT EXISTS idx_orders_table_id ON orders(table_id);
@@ -433,14 +446,15 @@ CREATE TABLE IF NOT EXISTS order_items (
     status order_item_status NOT NULL DEFAULT 'pending',
     notes TEXT,
     sort_order INTEGER DEFAULT 0,
-    course INTEGER DEFAULT 1,
-    allergens JSONB,
+    course INTEGER NOT NULL DEFAULT 1,
+    course_released_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items(order_id);
 CREATE INDEX IF NOT EXISTS idx_order_items_menu_item_id ON order_items(menu_item_id);
+CREATE INDEX IF NOT EXISTS idx_order_items_course ON order_items(order_id, course);
 
 CREATE TABLE IF NOT EXISTS sumup_payments (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -739,10 +753,10 @@ DO $$ BEGIN
     CREATE TRIGGER trg_table_day_configs_updated_at BEFORE UPDATE ON table_day_configs FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN
-    CREATE TRIGGER trg_devices_updated_at BEFORE UPDATE ON devices FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+    CREATE TRIGGER trg_reviews_updated_at BEFORE UPDATE ON reviews FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN
-    CREATE TRIGGER trg_reviews_updated_at BEFORE UPDATE ON reviews FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+    CREATE TRIGGER trg_devices_updated_at BEFORE UPDATE ON devices FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ============================================================

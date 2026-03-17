@@ -1,0 +1,9 @@
+# GastroPilot Demo Reset — taeglich 04:00 Uhr Europe/Berlin
+# Installation: crontab demo/crontab.demo
+# Log-Verzeichnis vorher anlegen: mkdir -p /var/log/gastropilot
+
+SHELL=/bin/bash
+TZ=Europe/Berlin
+COMPOSE_DIR=/opt/demo
+
+0 4 * * * /opt/demo/demo/reset_demo.sh >> /var/log/gastropilot/demo_reset.log 2>&1
