@@ -10,6 +10,9 @@ docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" pull frontend core orde
 echo "== Container neu starten =="
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d
 echo
+echo "== Core DB-Migration (Alembic) =="
+docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" exec -T core alembic -c alembic.ini upgrade head
+echo
 echo "== Health-Check =="
 sleep 5
 for svc in core orders ai notifications; do
