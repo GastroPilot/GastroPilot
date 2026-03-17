@@ -15,13 +15,7 @@ DO $$ BEGIN
     );
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-DO $$ BEGIN
-    CREATE TYPE subscription_tier AS ENUM ('free', 'starter', 'professional', 'enterprise');
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-
-DO $$ BEGIN
-    CREATE TYPE payment_provider AS ENUM ('stripe', 'sumup', 'both');
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+-- subscription_tier und payment_provider werden als VARCHAR genutzt (nicht als ENUM)
 
 DO $$ BEGIN
     CREATE TYPE reservation_status AS ENUM ('pending', 'confirmed', 'seated', 'completed', 'canceled', 'no_show');
@@ -75,12 +69,21 @@ CREATE TABLE IF NOT EXISTS restaurants (
     booking_default_duration INTEGER NOT NULL DEFAULT 120,
     opening_hours JSONB,
     settings JSONB DEFAULT '{}',
+    stripe_customer_id VARCHAR(128),
+    stripe_subscription_id VARCHAR(128),
+    stripe_price_id VARCHAR(128),
+    subscription_status VARCHAR(32) DEFAULT 'inactive',
+    subscription_current_period_end TIMESTAMPTZ,
+    billing_email VARCHAR(255),
+    subscription_tier VARCHAR(32) DEFAULT 'free',
+    is_suspended BOOLEAN NOT NULL DEFAULT FALSE,
+    is_featured BOOLEAN NOT NULL DEFAULT FALSE,
+    featured_until TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_restaurants_slug ON restaurants(slug);
-CREATE INDEX IF NOT EXISTS idx_restaurants_tier ON restaurants(subscription_tier);
 
 CREATE TABLE IF NOT EXISTS guest_profiles (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -89,8 +92,6 @@ CREATE TABLE IF NOT EXISTS guest_profiles (
     first_name VARCHAR(120) NOT NULL,
     last_name VARCHAR(120) NOT NULL,
     language VARCHAR(10) DEFAULT 'de',
-    birthday DATE,
-    company VARCHAR(200),
     notes TEXT,
     allergens JSONB DEFAULT '[]',
     preferences JSONB DEFAULT '{}',
@@ -302,6 +303,7 @@ CREATE TABLE IF NOT EXISTS reservations (
     voucher_discount_amount FLOAT,
     prepayment_required BOOLEAN NOT NULL DEFAULT FALSE,
     prepayment_amount FLOAT,
+    reminder_sent BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -617,47 +619,66 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs(entity_type, entity_id);
 
 -- ============================================================
--- REVIEWS (Bewertungssystem)
--- ============================================================
-
-CREATE TABLE IF NOT EXISTS reviews (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
-    guest_profile_id UUID NOT NULL REFERENCES guest_profiles(id) ON DELETE CASCADE,
-    reservation_id UUID REFERENCES reservations(id) ON DELETE SET NULL,
-    rating INTEGER NOT NULL CHECK (rating >= 1 AND rating <= 5),
-    title VARCHAR(200),
-    text TEXT,
-    is_visible BOOLEAN NOT NULL DEFAULT TRUE,
-    moderated_at TIMESTAMPTZ,
-    moderated_by UUID REFERENCES users(id) ON DELETE SET NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE(tenant_id, guest_profile_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_reviews_tenant_id ON reviews(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_reviews_guest_profile_id ON reviews(guest_profile_id);
-CREATE INDEX IF NOT EXISTS idx_reviews_rating ON reviews(tenant_id, rating);
-CREATE INDEX IF NOT EXISTS idx_reviews_visible ON reviews(tenant_id, is_visible) WHERE is_visible = TRUE;
-
--- ============================================================
--- KDS DEVICES
+-- DEVICES, REVIEWS, GUEST FAVORITES, NOTIFICATIONS (v0.13.0)
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS devices (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
     name VARCHAR(100) NOT NULL,
-    station VARCHAR(50) DEFAULT 'alle',
+    station VARCHAR(50) NOT NULL DEFAULT 'alle',
     device_token VARCHAR(128) NOT NULL UNIQUE,
     last_seen_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_devices_tenant ON devices(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_devices_token ON devices(device_token);
+CREATE INDEX IF NOT EXISTS idx_devices_tenant_id ON devices(tenant_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_devices_device_token ON devices(device_token);
+
+CREATE TABLE IF NOT EXISTS reviews (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+    guest_profile_id UUID NOT NULL REFERENCES guest_profiles(id) ON DELETE CASCADE,
+    rating INTEGER NOT NULL,
+    title VARCHAR(200),
+    text TEXT,
+    is_visible BOOLEAN NOT NULL DEFAULT TRUE,
+    is_verified BOOLEAN NOT NULL DEFAULT FALSE,
+    staff_reply TEXT,
+    staff_reply_at TIMESTAMPTZ,
+    staff_reply_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_reviews_tenant_id ON reviews(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_reviews_guest_profile_id ON reviews(guest_profile_id);
+
+CREATE TABLE IF NOT EXISTS guest_favorites (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    guest_profile_id UUID NOT NULL REFERENCES guest_profiles(id) ON DELETE CASCADE,
+    restaurant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_guest_favorites_unique ON guest_favorites(guest_profile_id, restaurant_id);
+CREATE INDEX IF NOT EXISTS idx_guest_favorites_guest_profile_id ON guest_favorites(guest_profile_id);
+CREATE INDEX IF NOT EXISTS idx_guest_favorites_restaurant_id ON guest_favorites(restaurant_id);
+
+CREATE TABLE IF NOT EXISTS notifications (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    guest_profile_id UUID NOT NULL REFERENCES guest_profiles(id) ON DELETE CASCADE,
+    tenant_id UUID REFERENCES restaurants(id) ON DELETE CASCADE,
+    type VARCHAR(64) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    body TEXT,
+    data JSONB DEFAULT '{}',
+    is_read BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_notifications_guest_profile_id ON notifications(guest_profile_id);
 
 -- ============================================================
 -- DB USERS
@@ -748,22 +769,28 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ============================================================
--- ANALYTICS MATERIALIZED VIEW
+-- ALEMBIC: Stamp als "head" da init.sql das vollständige Schema erstellt
 -- ============================================================
 
-CREATE MATERIALIZED VIEW IF NOT EXISTS tenant_analytics AS
-SELECT
-    r.id AS tenant_id,
-    r.name AS tenant_name,
-    r.subscription_tier,
-    COUNT(DISTINCT u.id) AS user_count,
-    COUNT(DISTINCT res.id) AS reservation_count,
-    COUNT(DISTINCT o.id) AS order_count,
-    COALESCE(SUM(o.total), 0) AS total_revenue
-FROM restaurants r
-LEFT JOIN users u ON u.tenant_id = r.id
-LEFT JOIN reservations res ON res.tenant_id = r.id
-LEFT JOIN orders o ON o.tenant_id = r.id AND o.payment_status = 'paid'
-GROUP BY r.id, r.name, r.subscription_tier;
+CREATE TABLE IF NOT EXISTS alembic_version (
+    version_num VARCHAR(32) NOT NULL,
+    CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num)
+);
+DELETE FROM alembic_version;
+INSERT INTO alembic_version (version_num) VALUES ('0008_sync_remaining_core_models');
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_tenant_analytics_tenant_id ON tenant_analytics(tenant_id);
+-- ============================================================
+-- OWNERSHIP: Alembic-User muss Owner der Tabellen sein für ALTER TABLE
+-- Übertrage an gastropilot (Superuser = DB-Owner = Alembic-User)
+-- ============================================================
+
+DO $$
+DECLARE
+    tbl TEXT;
+BEGIN
+    FOR tbl IN
+        SELECT tablename FROM pg_tables WHERE schemaname = 'public'
+    LOOP
+        EXECUTE format('ALTER TABLE public.%I OWNER TO gastropilot', tbl);
+    END LOOP;
+END $$;

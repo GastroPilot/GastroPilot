@@ -121,24 +121,63 @@ source venv/bin/activate  # macOS/Linux
 # Dependencies installieren
 pip install -r requirements.txt
 
-# Umgebungsvariablen kopieren
-cp .env.example .env
-# .env anpassen (DATABASE_URL, JWT_SECRET, etc.)
-
-# Server starten (mit SQLite für lokale Entwicklung)
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+# Service-Umgebungsvariablen anlegen
+cp services/core/.env.example services/core/.env
+cp services/orders/.env.example services/orders/.env
 ```
 
-**Wichtige Umgebungsvariablen (.env):**
+**Wichtige Umgebungsvariablen (services/core/.env):**
 
 ```bash
 ENV=development
-DATABASE_URL=sqlite+aiosqlite:///./reservation_dev.db
+DATABASE_URL=postgresql+asyncpg://gastropilot_app:gastropilot_app_password@localhost:5432/gastropilot
+DATABASE_ADMIN_URL=postgresql+asyncpg://gastropilot_admin:gastropilot_admin_password@localhost:5432/gastropilot
 JWT_SECRET=<generiere-einen-sicheren-schlüssel>
-SECRET_KEY=<generiere-einen-sicheren-schlüssel>
 CORS_ORIGINS=http://localhost:3000,http://localhost:3001
-LOG_LEVEL=DEBUG
+# Optional lokal ohne Redis:
+REDIS_URL=
 ```
+
+**Wichtige Umgebungsvariablen (services/orders/.env):**
+
+```bash
+ENV=development
+DATABASE_URL=postgresql+asyncpg://gastropilot_app:gastropilot_app_password@localhost:5432/gastropilot
+DATABASE_ADMIN_URL=postgresql+asyncpg://gastropilot_admin:gastropilot_admin_password@localhost:5432/gastropilot
+JWT_SECRET=<derselbe JWT_SECRET wie im core-service>
+CORS_ORIGINS=http://localhost:3000,http://localhost:3001
+REDIS_URL=redis://localhost:6379/0
+```
+
+**Startvarianten (lokal):**
+
+```bash
+# A) Nur Core (Auth/Tenant/Reservierungen etc., NICHT vollständige App-Funktion)
+cd gastropilot-backend/services/core
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+```bash
+# B) Core + Orders (zwei Terminals)
+# Terminal 1
+cd gastropilot-backend/services/core
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+# Terminal 2
+cd gastropilot-backend/services/orders
+uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
+```
+
+```bash
+# C) Empfohlen für vollständige lokale Entwicklung:
+# nginx + core + orders + db + redis (+ optional ai/notifications)
+cd GastroPilot
+docker compose -f docker-compose.dev.yml --env-file .env.dev up -d
+```
+
+> Hinweis: `uvicorn app.main:app` aus `gastropilot-backend` ohne `--app-dir services/core` startet den Legacy-Monolith unter `gastropilot-backend/app`.
+>
+> Legacy-Referenz (nur Alt-System): `cd gastropilot-backend && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload`
 
 ### 3. Frontend einrichten
 
@@ -159,7 +198,16 @@ npm run dev
 **Wichtige Umgebungsvariablen (.env.local):**
 
 ```bash
-NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+# Empfohlen (nginx-Gateway aus docker-compose.dev.yml)
+NEXT_PUBLIC_API_BASE_URL=http://localhost:80
+NEXT_PUBLIC_API_PREFIX=api/v1
+
+# Alternative nur für Core-Debugging:
+# NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+# NEXT_PUBLIC_API_PREFIX=v1
+#
+# Achtung: Mit "nur Core" sind nicht alle Frontend-Features verfügbar
+# (z.B. Orders/Kitchen und aktuell fehlende Table-CRUD-Endpunkte im core-service).
 ```
 
 ### 4. Mobile App einrichten
@@ -181,10 +229,11 @@ npx expo start
 **Wichtige Umgebungsvariablen (.env):**
 
 ```bash
-EXPO_PUBLIC_API_URL=http://localhost:8000
+EXPO_PUBLIC_API_URL=http://localhost:8000/v1
 ```
 
 **Hinweise:**
+- Beim ersten Start fragt die App nach dem Restaurant-Kürzel (`tenant_slug`, z.B. `mein-restaurant`)
 - Für NFC-Login wird ein echtes Gerät mit NFC benötigt
 - NFC funktioniert nicht in Expo Go oder im Web
 
@@ -202,21 +251,23 @@ cp .env.dev.example .env.dev
 # 2. Optional: .env.dev anpassen (Ports, Secrets, etc.)
 
 # 3. Services starten
-docker compose -f docker-compose.dev.yml up
+docker compose -f docker-compose.dev.yml --env-file .env.dev up
 
 # Oder im Hintergrund:
-docker compose -f docker-compose.dev.yml up -d
+docker compose -f docker-compose.dev.yml --env-file .env.dev up -d
 
 # Logs anzeigen
-docker compose -f docker-compose.dev.yml logs -f
+docker compose -f docker-compose.dev.yml --env-file .env.dev logs -f
 
 # Services stoppen
-docker compose -f docker-compose.dev.yml down
+docker compose -f docker-compose.dev.yml --env-file .env.dev down
 ```
 
 **Verfügbare Services:**
-- **Backend:** http://localhost:8000
-- **Frontend:** http://localhost:3000
+- **Gateway (nginx):** http://localhost:80
+- **Frontend:** http://localhost:3001
+- **API über Gateway:** http://localhost:80/api/v1
+- **Orders/Kitchen über Gateway:** http://localhost:80/api/v1/orders, http://localhost:80/api/v1/kitchen
 - **Database:** localhost:5432 (PostgreSQL)
 
 **Features:**
@@ -225,27 +276,23 @@ docker compose -f docker-compose.dev.yml down
 - ✅ PostgreSQL mit persistent storage
 - ✅ Gemeinsames Docker-Netzwerk
 - ✅ Health-Checks für alle Services
-- ✅ Automatisches Anlegen eines Standard-Servecta-Benutzers
 
-**Standard-Login (Development):**
-
-Beim ersten Start wird automatisch ein Servecta-Administrator angelegt:
-- **Bedienernummer:** `0000`
-- **PIN:** `000000`
-- **Rolle:** `servecta` (höchste Berechtigung)
-
-> **Hinweis:** Dieser Benutzer wird nur in der Development- und Test-Umgebung automatisch angelegt.
+**Hinweis:** Im Microservice-Stack ist Auth im `core`-Service. Für PIN-Login ist dort `tenant_slug` erforderlich.
 
 #### Option B: Einzelne Services
 
 Für mehr Kontrolle können Services auch einzeln gestartet werden:
 
 ```bash
-# Nur Backend + Database
-cd gastropilot-backend && docker compose up -d
+# Aus dem Root-Verzeichnis:
+# API-Basis für fast alle Flows: Core + Orders + DB + Redis + Gateway
+docker compose -f docker-compose.dev.yml --env-file .env.dev up -d postgres redis core orders nginx
 
-# Nur Frontend
-cd gastropilot-frontend && docker compose up -d
+# Frontend zusätzlich
+docker compose -f docker-compose.dev.yml --env-file .env.dev up -d frontend
+
+# Optional bei Bedarf
+docker compose -f docker-compose.dev.yml --env-file .env.dev up -d ai notifications notifications-worker
 ```
 
 ---
@@ -477,6 +524,9 @@ ssh user@server
 # Zum Umgebungsverzeichnis wechseln
 cd /opt/gastropilot/staging  # oder test/demo/production
 
+# Empfohlen (Staging): kontrolliertes Update inkl. Core-DB-Migration
+bash ./update-app.sh
+
 # Images pullen und neu starten
 docker compose pull
 docker compose up -d
@@ -484,6 +534,18 @@ docker compose up -d
 # Health Check
 curl http://localhost:8003/v1/health
 ```
+
+Fallback (wenn `update-app.sh` nicht verfügbar ist):
+
+```bash
+docker compose pull
+docker compose up -d
+docker compose exec core alembic -c alembic.ini upgrade head
+```
+
+Hinweis:
+- In Staging sind `core` und `orders` für Watchtower auf `false` gesetzt.
+- Diese Services sollen nur über den kontrollierten Deploy-Flow aktualisiert werden, damit API- und DB-Schema-Stand konsistent bleiben.
 
 ### Server-Struktur
 
@@ -649,60 +711,62 @@ git submodule update --remote --merge
 
 ```bash
 # Komplette Dev-Umgebung starten
-docker compose -f docker-compose.dev.yml up -d
+docker compose -f docker-compose.dev.yml --env-file .env.dev up -d
 
 # Services neu bauen
-docker compose -f docker-compose.dev.yml build
+docker compose -f docker-compose.dev.yml --env-file .env.dev build
 
 # Logs anzeigen (alle Services)
-docker compose -f docker-compose.dev.yml logs -f
+docker compose -f docker-compose.dev.yml --env-file .env.dev logs -f
 
 # Logs für einzelnen Service
-docker compose -f docker-compose.dev.yml logs -f backend
-docker compose -f docker-compose.dev.yml logs -f frontend
-docker compose -f docker-compose.dev.yml logs -f db
+docker compose -f docker-compose.dev.yml --env-file .env.dev logs -f core
+docker compose -f docker-compose.dev.yml --env-file .env.dev logs -f orders
+docker compose -f docker-compose.dev.yml --env-file .env.dev logs -f frontend
+docker compose -f docker-compose.dev.yml --env-file .env.dev logs -f postgres
 
 # In Container einloggen
-docker compose -f docker-compose.dev.yml exec backend bash
-docker compose -f docker-compose.dev.yml exec frontend sh
-docker compose -f docker-compose.dev.yml exec db psql -U postgres -d gastropilot_dev
+docker compose -f docker-compose.dev.yml --env-file .env.dev exec core sh
+docker compose -f docker-compose.dev.yml --env-file .env.dev exec orders sh
+docker compose -f docker-compose.dev.yml --env-file .env.dev exec frontend sh
+docker compose -f docker-compose.dev.yml --env-file .env.dev exec postgres psql -U gastropilot -d gastropilot
 
 # Services stoppen
-docker compose -f docker-compose.dev.yml down
+docker compose -f docker-compose.dev.yml --env-file .env.dev down
 
 # Services stoppen und Volumes löschen (Datenbank wird zurückgesetzt!)
-docker compose -f docker-compose.dev.yml down -v
+docker compose -f docker-compose.dev.yml --env-file .env.dev down -v
 
 # Service neu starten
-docker compose -f docker-compose.dev.yml restart backend
+docker compose -f docker-compose.dev.yml --env-file .env.dev restart core
+docker compose -f docker-compose.dev.yml --env-file .env.dev restart orders
 ```
 
 ### Einzelne Services (Alternative)
 
 ```bash
-# Backend + Database
-cd gastropilot-backend
-docker compose logs -f backend
-docker compose exec backend bash
+# Core + Orders + Database + Redis + Gateway
+docker compose -f docker-compose.dev.yml --env-file .env.dev up -d postgres redis core orders nginx
+docker compose -f docker-compose.dev.yml --env-file .env.dev logs -f core
+docker compose -f docker-compose.dev.yml --env-file .env.dev logs -f orders
 
 # Frontend
-cd gastropilot-frontend
-docker compose logs -f frontend
-docker compose exec frontend sh
+docker compose -f docker-compose.dev.yml --env-file .env.dev up -d frontend
+docker compose -f docker-compose.dev.yml --env-file .env.dev logs -f frontend
 ```
 
 ### Datenbank
 
 ```bash
-# Datenbank-Migration (Backend)
-# Migrations werden automatisch beim Start ausgeführt
+# Datenbank-Migration (Core)
+docker compose -f docker-compose.dev.yml --env-file .env.dev exec core alembic upgrade head
 
 # PostgreSQL CLI (wenn mit docker-compose.dev.yml gestartet)
-docker compose -f docker-compose.dev.yml exec db psql -U postgres -d gastropilot_dev
+docker compose -f docker-compose.dev.yml --env-file .env.dev exec postgres psql -U gastropilot -d gastropilot
 
 # Datenbank zurücksetzen
-docker compose -f docker-compose.dev.yml down -v
-docker compose -f docker-compose.dev.yml up -d
+docker compose -f docker-compose.dev.yml --env-file .env.dev down -v
+docker compose -f docker-compose.dev.yml --env-file .env.dev up -d
 ```
 
 ### Dependencies
@@ -737,19 +801,17 @@ git submodule update --init --recursive
 
 ```bash
 # Development Environment: Alle Container stoppen und entfernen
-docker compose -f docker-compose.dev.yml down -v
+docker compose -f docker-compose.dev.yml --env-file .env.dev down -v
 
 # Images neu bauen
-docker compose -f docker-compose.dev.yml build --no-cache
+docker compose -f docker-compose.dev.yml --env-file .env.dev build --no-cache
 
 # Neu starten
-docker compose -f docker-compose.dev.yml up -d
+docker compose -f docker-compose.dev.yml --env-file .env.dev up -d
 
-# Einzelne Services (Backend/Frontend):
-cd gastropilot-backend  # oder gastropilot-frontend
-docker compose down -v
-docker compose build --no-cache
-docker compose up -d
+# Nur Core frisch bauen/starten
+docker compose -f docker-compose.dev.yml --env-file .env.dev build --no-cache core
+docker compose -f docker-compose.dev.yml --env-file .env.dev up -d core
 ```
 
 ### Port bereits belegt
@@ -771,4 +833,4 @@ kill -9 <PID>
 
 ---
 
-*Letzte Aktualisierung: Januar 2026*
+*Letzte Aktualisierung: März 2026*
