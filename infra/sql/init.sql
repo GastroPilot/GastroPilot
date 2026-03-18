@@ -85,12 +85,14 @@ CREATE TABLE IF NOT EXISTS guest_profiles (
     language VARCHAR(10) DEFAULT 'de',
     notes TEXT,
     allergens JSONB DEFAULT '[]',
+    allergen_profile JSONB DEFAULT '[]',
     preferences JSONB DEFAULT '{}',
     password_hash VARCHAR(255),
     email_verified BOOLEAN NOT NULL DEFAULT FALSE,
     email_verification_token VARCHAR(255),
     password_reset_token VARCHAR(255),
     password_reset_expires_at TIMESTAMPTZ,
+    push_token VARCHAR(512),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -290,10 +292,6 @@ CREATE TABLE IF NOT EXISTS reservations (
     canceled_at TIMESTAMPTZ,
     canceled_reason TEXT,
     no_show_at TIMESTAMPTZ,
-    voucher_id UUID,
-    voucher_discount_amount FLOAT,
-    prepayment_required BOOLEAN NOT NULL DEFAULT FALSE,
-    prepayment_amount FLOAT,
     reminder_sent BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -421,6 +419,7 @@ CREATE TABLE IF NOT EXISTS orders (
     source VARCHAR(20) DEFAULT 'staff',
     session_id VARCHAR(64),
     guest_profile_id UUID REFERENCES guest_profiles(id) ON DELETE SET NULL,
+    guest_allergens JSONB DEFAULT '[]',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -448,6 +447,7 @@ CREATE TABLE IF NOT EXISTS order_items (
     sort_order INTEGER DEFAULT 0,
     course INTEGER NOT NULL DEFAULT 1,
     course_released_at TIMESTAMPTZ,
+    allergens JSONB DEFAULT '[]',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -478,93 +478,6 @@ CREATE TABLE IF NOT EXISTS sumup_payments (
 CREATE INDEX IF NOT EXISTS idx_sumup_payments_tenant_id ON sumup_payments(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_sumup_payments_order_id ON sumup_payments(order_id);
 CREATE INDEX IF NOT EXISTS idx_sumup_payments_checkout_id ON sumup_payments(checkout_id);
-
-CREATE TABLE IF NOT EXISTS vouchers (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
-    code VARCHAR(64) UNIQUE NOT NULL,
-    name VARCHAR(240),
-    description TEXT,
-    type VARCHAR(32) NOT NULL DEFAULT 'fixed',
-    value FLOAT NOT NULL,
-    valid_from DATE,
-    valid_until DATE,
-    max_uses INTEGER,
-    used_count INTEGER NOT NULL DEFAULT 0,
-    min_order_value FLOAT,
-    is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    created_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_vouchers_tenant_id ON vouchers(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_vouchers_code ON vouchers(code);
-
-CREATE TABLE IF NOT EXISTS upsell_packages (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
-    name VARCHAR(240) NOT NULL,
-    description TEXT,
-    price FLOAT NOT NULL,
-    is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    available_from_date DATE,
-    available_until_date DATE,
-    min_party_size INTEGER,
-    max_party_size INTEGER,
-    available_times JSONB,
-    available_weekdays JSONB,
-    image_url VARCHAR(512),
-    display_order INTEGER NOT NULL DEFAULT 0,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_upsell_packages_tenant_id ON upsell_packages(tenant_id);
-
-CREATE TABLE IF NOT EXISTS reservation_prepayments (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    reservation_id UUID NOT NULL REFERENCES reservations(id) ON DELETE CASCADE,
-    tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
-    amount FLOAT NOT NULL,
-    currency VARCHAR(3) NOT NULL DEFAULT 'EUR',
-    payment_provider VARCHAR(32) NOT NULL,
-    payment_id VARCHAR(128),
-    transaction_id VARCHAR(128),
-    status VARCHAR(32) NOT NULL DEFAULT 'pending',
-    payment_data JSONB,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    completed_at TIMESTAMPTZ
-);
-
-CREATE INDEX IF NOT EXISTS idx_reservation_prepayments_tenant_id ON reservation_prepayments(tenant_id);
-
-CREATE TABLE IF NOT EXISTS reservation_upsell_packages (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    reservation_id UUID NOT NULL REFERENCES reservations(id) ON DELETE CASCADE,
-    upsell_package_id UUID NOT NULL REFERENCES upsell_packages(id) ON DELETE CASCADE,
-    tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
-    price_at_time FLOAT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE(reservation_id, upsell_package_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_reservation_upsell_packages_tenant_id ON reservation_upsell_packages(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_reservation_upsell_packages_reservation_id ON reservation_upsell_packages(reservation_id);
-
-CREATE TABLE IF NOT EXISTS voucher_usage (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    voucher_id UUID NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
-    reservation_id UUID REFERENCES reservations(id) ON DELETE SET NULL,
-    tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
-    used_by_email VARCHAR(255),
-    discount_amount FLOAT NOT NULL,
-    used_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_voucher_usage_tenant_id ON voucher_usage(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_voucher_usage_voucher_id ON voucher_usage(voucher_id);
 
 CREATE TABLE IF NOT EXISTS reservation_table_day_configs (
     reservation_id UUID REFERENCES reservations(id) ON DELETE CASCADE,
@@ -672,31 +585,20 @@ CREATE TABLE IF NOT EXISTS notifications (
 CREATE INDEX IF NOT EXISTS idx_notifications_guest_profile_id ON notifications(guest_profile_id);
 
 -- ============================================================
--- DB USERS
+-- PERMISSIONS
+-- Der POSTGRES_USER (Superuser) wird für alle Verbindungen genutzt.
+-- Grants auf Schema public sicherstellen (PostgreSQL 15+ entzieht CREATE standardmäßig).
 -- ============================================================
 
 DO $$
 BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'gastropilot_app') THEN
-        CREATE ROLE gastropilot_app WITH LOGIN PASSWORD 'gastropilot_app_password';
-    END IF;
+    EXECUTE format('GRANT ALL PRIVILEGES ON DATABASE %I TO current_user', current_database());
 END $$;
-
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'gastropilot_admin') THEN
-        CREATE ROLE gastropilot_admin WITH LOGIN PASSWORD 'gastropilot_admin_password' BYPASSRLS;
-    END IF;
-END $$;
-
-GRANT CONNECT ON DATABASE gastropilot TO gastropilot_app, gastropilot_admin;
-GRANT USAGE ON SCHEMA public TO gastropilot_app, gastropilot_admin;
--- gastropilot_admin braucht CREATE für Alembic-Migrationen (PostgreSQL 15+ entzieht CREATE standardmäßig)
-GRANT CREATE ON SCHEMA public TO gastropilot_admin;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO gastropilot_app, gastropilot_admin;
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO gastropilot_app, gastropilot_admin;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO gastropilot_app, gastropilot_admin;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO gastropilot_app, gastropilot_admin;
+GRANT ALL ON SCHEMA public TO current_user;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO current_user;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO current_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON TABLES TO current_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON SEQUENCES TO current_user;
 
 -- ============================================================
 -- UPDATED_AT TRIGGERS
@@ -729,19 +631,10 @@ DO $$ BEGIN
     CREATE TRIGGER trg_menu_items_updated_at BEFORE UPDATE ON menu_items FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN
-    CREATE TRIGGER trg_vouchers_updated_at BEFORE UPDATE ON vouchers FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-DO $$ BEGIN
     CREATE TRIGGER trg_guest_profiles_updated_at BEFORE UPDATE ON guest_profiles FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN
     CREATE TRIGGER trg_guests_updated_at BEFORE UPDATE ON guests FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-DO $$ BEGIN
-    CREATE TRIGGER trg_upsell_packages_updated_at BEFORE UPDATE ON upsell_packages FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-DO $$ BEGIN
-    CREATE TRIGGER trg_reservation_prepayments_updated_at BEFORE UPDATE ON reservation_prepayments FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN
     CREATE TRIGGER trg_sumup_payments_updated_at BEFORE UPDATE ON sumup_payments FOR EACH ROW EXECUTE FUNCTION update_updated_at();
@@ -771,8 +664,7 @@ DELETE FROM alembic_version;
 INSERT INTO alembic_version (version_num) VALUES ('0008_sync_remaining_core_models');
 
 -- ============================================================
--- OWNERSHIP: Alembic-User muss Owner der Tabellen sein für ALTER TABLE
--- Übertrage an gastropilot (Superuser = DB-Owner = Alembic-User)
+-- OWNERSHIP: Tabellen dem aktuellen User zuweisen (= POSTGRES_USER)
 -- ============================================================
 
 DO $$
@@ -782,6 +674,6 @@ BEGIN
     FOR tbl IN
         SELECT tablename FROM pg_tables WHERE schemaname = 'public'
     LOOP
-        EXECUTE format('ALTER TABLE public.%I OWNER TO gastropilot', tbl);
+        EXECUTE format('ALTER TABLE public.%I OWNER TO %I', tbl, current_user);
     END LOOP;
 END $$;
