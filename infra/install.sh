@@ -19,8 +19,8 @@
 #   orders (8001)        — Bestellungen, Kitchen, Payments, WebSocket
 #   ai (8002)            — Sitzplatz-Optimierung, Prognosen
 #   notifications (8003) — E-Mail, SMS, Push, WhatsApp
-#   frontend (3001)      — Next.js Dashboard
-#   guest-portal (3002)  — Gaeste-Portal
+#   web (3000)           — Webseite + Gaesteportal
+#   dashboard (3001)     — Restaurant-Dashboard
 #   table-order (3003)   — QR-Tischbestellung
 #   kds (3004)           — Kitchen Display System
 #
@@ -120,11 +120,11 @@ AUTH_SECRET=$(generate_secret)
 read -rp "  Domain-Prefix (z.B. stage, demo, test): " DOMAIN_PREFIX
 echo
 echo "  Folgende Subdomains werden konfiguriert:"
-echo "    ${DOMAIN_PREFIX}.gpilot.app         — Dashboard (Frontend)"
-echo "    ${DOMAIN_PREFIX}-api.gpilot.app     — API (Backend)"
-echo "    ${DOMAIN_PREFIX}-portal.gpilot.app  — Gaeste-Portal"
-echo "    ${DOMAIN_PREFIX}-order.gpilot.app   — Tischbestellung"
-echo "    ${DOMAIN_PREFIX}-kds.gpilot.app     — Kitchen Display"
+echo "    ${DOMAIN_PREFIX}.gpilot.app             — Webseite + Gaesteportal"
+echo "    ${DOMAIN_PREFIX}-dashboard.gpilot.app         — Restaurant-Dashboard"
+echo "    ${DOMAIN_PREFIX}-api.gpilot.app         — API (Backend)"
+echo "    ${DOMAIN_PREFIX}-order.gpilot.app       — Tischbestellung"
+echo "    ${DOMAIN_PREFIX}-kds.gpilot.app         — Kitchen Display"
 echo
 read -rp "  Korrekt? (J/n): " DOMAIN_CONFIRM
 if [[ "$DOMAIN_CONFIRM" =~ ^[nN]$ ]]; then
@@ -133,12 +133,12 @@ if [[ "$DOMAIN_CONFIRM" =~ ^[nN]$ ]]; then
 fi
 
 DOMAIN="${DOMAIN_PREFIX}.gpilot.app"
+APP_DOMAIN="${DOMAIN_PREFIX}-dashboard.gpilot.app"
 API_DOMAIN="${DOMAIN_PREFIX}-api.gpilot.app"
-PORTAL_DOMAIN="${DOMAIN_PREFIX}-portal.gpilot.app"
 ORDER_DOMAIN="${DOMAIN_PREFIX}-order.gpilot.app"
 KDS_DOMAIN="${DOMAIN_PREFIX}-kds.gpilot.app"
 
-ALL_DOMAINS=("$DOMAIN" "$API_DOMAIN" "$PORTAL_DOMAIN" "$ORDER_DOMAIN" "$KDS_DOMAIN")
+ALL_DOMAINS=("$DOMAIN" "$APP_DOMAIN" "$API_DOMAIN" "$ORDER_DOMAIN" "$KDS_DOMAIN")
 
 # SMTP (optional)
 echo
@@ -190,9 +190,9 @@ REFRESH_TOKEN_EXPIRE_DAYS=30
 BCRYPT_ROUNDS=12
 
 # CORS & Security
-CORS_ORIGINS=https://${DOMAIN},https://${API_DOMAIN},https://${PORTAL_DOMAIN},https://${ORDER_DOMAIN},https://${KDS_DOMAIN}
+CORS_ORIGINS=https://${DOMAIN},https://${APP_DOMAIN},https://${API_DOMAIN},https://${ORDER_DOMAIN},https://${KDS_DOMAIN}
 CORS_ALLOW_CREDENTIALS=true
-ALLOWED_HOSTS=${DOMAIN},${API_DOMAIN},${PORTAL_DOMAIN},${ORDER_DOMAIN},${KDS_DOMAIN}
+ALLOWED_HOSTS=${DOMAIN},${APP_DOMAIN},${API_DOMAIN},${ORDER_DOMAIN},${KDS_DOMAIN}
 
 # Logging
 LOG_LEVEL=INFO
@@ -209,21 +209,21 @@ SMTP_USE_TLS=true
 SMTP_FROM_EMAIL=${SMTP_FROM_EMAIL}
 SMTP_FROM_NAME=GastroPilot ${ENVIRONMENT^}
 
-# ==================== FRONTEND (Dashboard) ====================
-BASE_URL=https://${DOMAIN}
+# ==================== WEB (Webseite + Gaesteportal) ====================
+WEB_BASE_URL=https://${DOMAIN}
+
+# ==================== DASHBOARD (Restaurant) ====================
+BASE_URL=https://${APP_DOMAIN}
 NEXT_PUBLIC_API_BASE_URL=https://${API_DOMAIN}
 NEXT_PUBLIC_API_PREFIX=api/v1
 AUTH_SECRET=${AUTH_SECRET}
 
 # ==================== DOMAINS (fuer docker-compose) ====================
-APP_DOMAIN=${DOMAIN}
+WEB_DOMAIN=${DOMAIN}
+APP_DOMAIN_HOST=${APP_DOMAIN}
 API_DOMAIN_HOST=${API_DOMAIN}
-PORTAL_DOMAIN_HOST=${PORTAL_DOMAIN}
 ORDER_DOMAIN_HOST=${ORDER_DOMAIN}
 KDS_DOMAIN_HOST=${KDS_DOMAIN}
-
-# ==================== GUEST PORTAL ====================
-GUEST_PORTAL_BASE_URL=https://${PORTAL_DOMAIN}
 
 # ==================== TABLE ORDER ====================
 TABLE_ORDER_BASE_URL=https://${ORDER_DOMAIN}
@@ -496,6 +496,8 @@ services:
       - orders
       - ai
       - notifications
+      - web
+      - dashboard
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1/health"]
       interval: 30s
@@ -508,16 +510,15 @@ services:
   # ---------------------------------------------------------------------------
   # Frontend Apps
   # ---------------------------------------------------------------------------
-  frontend:
+  web:
     image: ${DOCKERHUB_ORG}/gastropilot-web:${IMAGE_TAG}
-    container_name: ${STACK_NAME}-frontend
+    container_name: ${STACK_NAME}-web
     restart: always
     environment:
       NODE_ENV: production
       NEXT_PUBLIC_API_BASE_URL: https://${API_DOMAIN_HOST}
-      NEXT_PUBLIC_API_PREFIX: ${NEXT_PUBLIC_API_PREFIX}
+      NEXT_PUBLIC_API_PREFIX: api/v1
       SSR_API_BASE_URL: http://nginx:80
-      AUTH_SECRET: ${AUTH_SECRET}
       NEXT_TELEMETRY_DISABLED: 1
     expose:
       - "3000"
@@ -536,16 +537,21 @@ services:
       - internal
       - gastropilot-shared-proxy
 
-  guest-portal:
-    image: ${DOCKERHUB_ORG}/gastropilot-guest-portal:${IMAGE_TAG}
-    container_name: ${STACK_NAME}-guest-portal
+  dashboard:
+    image: ${DOCKERHUB_ORG}/gastropilot-dashboard:${IMAGE_TAG}
+    container_name: ${STACK_NAME}-dashboard
     restart: always
     environment:
+      NODE_ENV: production
       NEXT_PUBLIC_API_BASE_URL: https://${API_DOMAIN_HOST}
-      NEXT_PUBLIC_API_PREFIX: api/v1
+      NEXT_PUBLIC_API_PREFIX: ${NEXT_PUBLIC_API_PREFIX}
       SSR_API_BASE_URL: http://nginx:80
+      AUTH_SECRET: ${AUTH_SECRET}
+      NEXT_TELEMETRY_DISABLED: 1
+    expose:
+      - "3001"
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3002/"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3001/"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -685,9 +691,14 @@ http {
         keepalive 16;
     }
 
-    upstream frontend {
-        server ${STACK_NAME}-frontend:3000 max_fails=3 fail_timeout=30s;
+    upstream web {
+        server ${STACK_NAME}-web:3000 max_fails=3 fail_timeout=30s;
         keepalive 32;
+    }
+
+    upstream dashboard {
+        server ${STACK_NAME}-dashboard:3001 max_fails=3 fail_timeout=30s;
+        keepalive 16;
     }
 
     map \$http_upgrade \$connection_upgrade {
@@ -745,7 +756,7 @@ http {
         }
 
         # --- Orders Service ---
-        location ~ ^/(api/v1|v1)/(orders|kitchen|order-statistics|sumup|invoices|waitlist) {
+        location ~ ^/(api/v1|v1)/(orders|kitchen|order-statistics|sumup|invoices|waitlist)(/|$) {
             limit_req zone=api_limit burst=20 nodelay;
             proxy_pass http://orders;
             proxy_http_version 1.1;
@@ -759,7 +770,7 @@ http {
         }
 
         # --- AI Service ---
-        location ~ ^/(api/v1|v1)/ai/ {
+        location ~ ^/(api/v1|v1)/ai(/|$) {
             limit_req zone=api_limit burst=20 nodelay;
             proxy_pass http://ai;
             proxy_http_version 1.1;
@@ -786,17 +797,17 @@ http {
 
         # --- Next.js static assets ---
         location /_next/static/ {
-            proxy_pass http://frontend;
+            proxy_pass http://web;
             proxy_http_version 1.1;
             expires 365d;
             add_header Cache-Control "public, immutable";
             proxy_set_header Host \$host;
         }
 
-        # --- Frontend (catch-all) ---
+        # --- Web (catch-all) ---
         location / {
             limit_req zone=web_limit burst=50 nodelay;
-            proxy_pass http://frontend;
+            proxy_pass http://web;
             proxy_http_version 1.1;
             proxy_set_header Host \$host;
             proxy_set_header X-Real-IP \$remote_addr;
@@ -824,7 +835,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # Versuche init.sql und rls.sql aus dem Repo zu kopieren (falls install.sh aus infra/ ausgefuehrt wird)
 for SQL_FILE in init.sql rls.sql; do
-    # Docker legt fehlende Mount-Ziele als Verzeichnisse an — aufräumen
+    # Docker legt fehlende Mount-Ziele als Verzeichnisse an — aufraeumen
     if [ -d "$SQL_FILE" ]; then
         rm -rf "$SQL_FILE"
     fi
@@ -980,13 +991,21 @@ PROXYEOF
     echo "  $(basename "$CONF_FILE") erstellt."
 }
 
-# Dashboard (Frontend + API via interner nginx)
+# Web (Webseite + Gaesteportal — Hauptdomain via interner nginx)
 write_proxy_conf \
     "$PROXY_CONF_DIR/${DOMAIN}.conf" \
     "$DOMAIN" \
     "backend" \
     "${STACK_NAME}-nginx:80" \
-    "Dashboard — Frontend + API via internem nginx"
+    "Web — Webseite + Gaesteportal via internem nginx"
+
+# Dashboard (Restaurant-Dashboard — eigene Subdomain, direkt)
+write_proxy_conf \
+    "$PROXY_CONF_DIR/${APP_DOMAIN}.conf" \
+    "$APP_DOMAIN" \
+    "dashboard_backend" \
+    "${STACK_NAME}-dashboard:3001" \
+    "Dashboard — Restaurant-Dashboard"
 
 # API
 write_proxy_conf \
@@ -995,14 +1014,6 @@ write_proxy_conf \
     "api_backend" \
     "${STACK_NAME}-nginx:80" \
     "API — Backend Microservices via internem nginx"
-
-# Guest Portal
-write_proxy_conf \
-    "$PROXY_CONF_DIR/${PORTAL_DOMAIN}.conf" \
-    "$PORTAL_DOMAIN" \
-    "portal_backend" \
-    "${STACK_NAME}-guest-portal:3002" \
-    "Guest Portal — Gaeste Web-Portal"
 
 # Table Order
 write_proxy_conf \
@@ -1019,6 +1030,13 @@ write_proxy_conf \
     "kds_backend" \
     "${STACK_NAME}-kds:3004" \
     "KDS — Kitchen Display System"
+
+# Alte Portal-Config entfernen (falls vorhanden)
+PORTAL_DOMAIN="${DOMAIN_PREFIX}-portal.gpilot.app"
+if [ -f "$PROXY_CONF_DIR/${PORTAL_DOMAIN}.conf" ]; then
+    rm -f "$PROXY_CONF_DIR/${PORTAL_DOMAIN}.conf"
+    echo "  ${PORTAL_DOMAIN}.conf entfernt (guest-portal nicht mehr vorhanden)."
+fi
 
 # Shared Proxy neu laden
 echo "  Lade Shared Proxy neu..."
@@ -1103,7 +1121,7 @@ docker compose exec core alembic -c alembic.ini upgrade head 2>/dev/null || echo
 # Status
 echo
 echo "  Service-Status:"
-for svc in core orders ai notifications frontend guest-portal table-order kds nginx; do
+for svc in core orders ai notifications web dashboard table-order kds nginx; do
     CONTAINER="${STACK_NAME}-${svc}"
     STATUS=$(docker inspect --format='{{.State.Status}}' "$CONTAINER" 2>/dev/null || echo "nicht gefunden")
     HEALTH=$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}-{{end}}' "$CONTAINER" 2>/dev/null || echo "-")
@@ -1169,9 +1187,9 @@ echo "Stack:        $STACK_NAME"
 echo "Image-Tag:    $IMAGE_TAG"
 echo
 echo "Domains:"
-echo "  Dashboard:    https://$DOMAIN"
+echo "  Webseite:     https://$DOMAIN"
+echo "  Dashboard:    https://$APP_DOMAIN"
 echo "  API:          https://$API_DOMAIN"
-echo "  Guest Portal: https://$PORTAL_DOMAIN"
 echo "  Table Order:  https://$ORDER_DOMAIN"
 echo "  KDS:          https://$KDS_DOMAIN"
 echo
@@ -1180,8 +1198,8 @@ echo "  core          — Auth, Users, Restaurants, Reservierungen"
 echo "  orders        — Bestellungen, Kitchen, Payments"
 echo "  ai            — Sitzplatz-Optimierung, Prognosen"
 echo "  notifications — E-Mail, SMS, WhatsApp"
-echo "  frontend      — Next.js Dashboard"
-echo "  guest-portal  — Gaeste Web-Portal"
+echo "  web           — Webseite + Gaesteportal"
+echo "  dashboard     — Restaurant-Dashboard"
 echo "  table-order   — QR-Tischbestellung"
 echo "  kds           — Kitchen Display System"
 echo

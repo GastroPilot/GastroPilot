@@ -179,9 +179,9 @@ jobs:
           - app: web
             image: gastropilot-web
             context: ./web
-          - app: guest-portal
-            image: gastropilot-guest-portal
-            context: ./guest-portal
+          - app: dashboard
+            image: gastropilot-dashboard
+            context: ./dashboard
           - app: kds
             image: gastropilot-kds
             context: ./kds
