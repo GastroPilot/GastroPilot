@@ -3,10 +3,10 @@
 	url = https://github.com/GastroPilot/gastropilot-backend.git
 [submodule "gastropilot-web"]
 	path = web
-	url = https://github.com/GastroPilot/web.git
+	url = https://github.com/GastroPilot/gastropilot-web.git
 [submodule "gastropilot-dashboard"]
 	path = dashboard
-	url = https://github.com/GastroPilot/gastropilot-frontend.git
+	url = https://github.com/GastroPilot/gastropilot-dashboard.git
 [submodule "gastropilot-app"]
 	path = restaurant-app
 	url = https://github.com/GastroPilot/gastropilot-app.git
