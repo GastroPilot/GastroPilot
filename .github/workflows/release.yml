@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version_bump:
-        description: 'Version bump type'
+        description: 'Versions-Typ: patch (0.13.0 → 0.13.1), minor (0.13.0 → 0.14.0), major (0.13.0 → 1.0.0)'
         required: true
         type: choice
         options:
@@ -12,7 +12,7 @@ on:
           - minor
           - major
       deploy_to_production:
-        description: 'Deploy to production after release?'
+        description: 'Nach dem Release automatisch auf Production deployen? (Watchtower zieht :latest Images)'
         required: true
         type: boolean
         default: false
@@ -20,16 +20,17 @@ on:
 permissions:
   contents: write
 
-# Prevent concurrent releases to avoid conflicts
 concurrency:
   group: release
   cancel-in-progress: false
 
 env:
   DOCKERHUB_ORG: servecta
-  NODE_VERSION: '20'
 
 jobs:
+  # ============================================
+  # 1. Release erstellen (Version bump, Tag, Changelog)
+  # ============================================
   release:
     name: Create Release
     runs-on: ubuntu-latest
@@ -62,11 +63,10 @@ jobs:
 
       - name: Calculate new version
         id: bump
+        env:
+          CURRENT: ${{ steps.current.outputs.version }}
+          BUMP_TYPE: ${{ github.event.inputs.version_bump }}
         run: |
-          CURRENT="${{ steps.current.outputs.version }}"
-          BUMP_TYPE="${{ github.event.inputs.version_bump }}"
-
-          # Parse version
           IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
 
           case $BUMP_TYPE in
@@ -89,25 +89,12 @@ jobs:
           echo "release_tag=v$NEW_VERSION" >> $GITHUB_OUTPUT
           echo "New version: $NEW_VERSION"
 
-      - name: Update VERSION file
+      - name: Update VERSION files
         run: |
           echo "${{ steps.bump.outputs.new_version }}" > VERSION
           git add VERSION
 
-      - name: Update submodule VERSION files
-        run: |
-          # Update frontend VERSION
-          if [ -d "web" ]; then
-            echo "${{ steps.bump.outputs.new_version }}" > web/VERSION 2>/dev/null || true
-          fi
-
-          # Update backend VERSION
-          if [ -d "backend" ]; then
-            echo "${{ steps.bump.outputs.new_version }}" > backend/VERSION 2>/dev/null || true
-          fi
-
-          # Update new app VERSION files
-          for dir in guest-portal kds table-order; do
+          for dir in web backend guest-portal kds table-order; do
             if [ -d "$dir" ]; then
               echo "${{ steps.bump.outputs.new_version }}" > "$dir/VERSION" 2>/dev/null || true
             fi
@@ -119,7 +106,6 @@ jobs:
           NEW_VERSION="${{ steps.bump.outputs.new_version }}"
           RELEASE_DATE=$(date +%Y-%m-%d)
 
-          # Get commits since last tag
           LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
 
           if [ -n "$LAST_TAG" ]; then
@@ -128,7 +114,6 @@ jobs:
             COMMITS=$(git log --pretty=format:"- %s (%h)" --no-merges | head -50)
           fi
 
-          # Create changelog entry
           ENTRY="## [${NEW_VERSION}] - ${RELEASE_DATE}
 
           ### Changes
@@ -136,9 +121,7 @@ jobs:
 
           "
 
-          # Prepend to CHANGELOG.md
           if [ -f CHANGELOG.md ]; then
-            # Read existing content, skip the header
             EXISTING=$(tail -n +3 CHANGELOG.md)
             echo "# Changelog
 
@@ -152,7 +135,6 @@ jobs:
 
           git add CHANGELOG.md
 
-          # Save for release notes
           echo "RELEASE_NOTES<<EOF" >> $GITHUB_OUTPUT
           echo "${ENTRY}" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
@@ -165,16 +147,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Configure git to use GITHUB_TOKEN for push (has write access to this repo)
           git remote set-url origin https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git
-
-          # Pull latest changes and rebase our commit on top
           git pull --rebase origin main
-
-          # Push the commit
           git push
 
-          # Create and push the tag
           git tag -a "${{ steps.bump.outputs.release_tag }}" -m "Release ${{ steps.bump.outputs.new_version }}"
           git push origin "${{ steps.bump.outputs.release_tag }}"
 
@@ -189,157 +165,120 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  build-and-tag:
-    name: Build & Tag Release Images
+  # ============================================
+  # 2. Frontend Images bauen (parallel)
+  # ============================================
+  build-frontend:
+    name: Build ${{ matrix.app }}
     runs-on: ubuntu-latest
     needs: release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - app: web
+            image: gastropilot-web
+            context: ./web
+          - app: guest-portal
+            image: gastropilot-guest-portal
+            context: ./guest-portal
+          - app: kds
+            image: gastropilot-kds
+            context: ./kds
+          - app: table-order
+            image: gastropilot-table-order
+            context: ./table-order
     steps:
-      - name: Checkout code with submodules
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
           ref: ${{ needs.release.outputs.release_tag }}
           token: ${{ secrets.SUBMODULE_PAT }}
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v3
 
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
+      - uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # ============================================
-      # Frontend Apps (with NEXT_PUBLIC_APP_VERSION)
-      # ============================================
-
-      - name: Build and push Frontend
+      - name: Build and push ${{ matrix.app }}
         uses: docker/build-push-action@v5
         with:
-          context: ./web
+          context: ${{ matrix.context }}
           push: true
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-web:${{ needs.release.outputs.release_tag }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-web:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-web:production
-          cache-from: type=gha,scope=frontend-production
-          cache-to: type=gha,mode=max,scope=frontend-production
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.image }}:${{ needs.release.outputs.release_tag }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.image }}:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.image }}:production
+          cache-from: type=gha,scope=${{ matrix.app }}-production
+          cache-to: type=gha,mode=max,scope=${{ matrix.app }}-production
           build-args: |
             NEXT_PUBLIC_APP_VERSION=${{ needs.release.outputs.new_version }}
 
-      - name: Build and push Guest Portal
-        uses: docker/build-push-action@v5
+  # ============================================
+  # 3. Backend Images bauen (parallel)
+  # ============================================
+  build-backend:
+    name: Build ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    needs: release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: core
+            image: gastropilot-core
+            dockerfile: services/core/Dockerfile
+          - service: orders
+            image: gastropilot-orders
+            dockerfile: services/orders/Dockerfile
+          - service: ai
+            image: gastropilot-ai
+            dockerfile: services/ai/Dockerfile
+          - service: notifications
+            image: gastropilot-notifications
+            dockerfile: services/notifications/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
         with:
-          context: ./guest-portal
-          push: true
-          tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-guest-portal:${{ needs.release.outputs.release_tag }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-guest-portal:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-guest-portal:production
-          cache-from: type=gha,scope=guest-portal-production
-          cache-to: type=gha,mode=max,scope=guest-portal-production
-          build-args: |
-            NEXT_PUBLIC_APP_VERSION=${{ needs.release.outputs.new_version }}
+          submodules: recursive
+          ref: ${{ needs.release.outputs.release_tag }}
+          token: ${{ secrets.SUBMODULE_PAT }}
 
-      - name: Build and push KDS
-        uses: docker/build-push-action@v5
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
         with:
-          context: ./kds
-          push: true
-          tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-kds:${{ needs.release.outputs.release_tag }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-kds:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-kds:production
-          cache-from: type=gha,scope=kds-production
-          cache-to: type=gha,mode=max,scope=kds-production
-          build-args: |
-            NEXT_PUBLIC_APP_VERSION=${{ needs.release.outputs.new_version }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and push Table Order
-        uses: docker/build-push-action@v5
-        with:
-          context: ./table-order
-          push: true
-          tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-table-order:${{ needs.release.outputs.release_tag }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-table-order:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-table-order:production
-          cache-from: type=gha,scope=table-order-production
-          cache-to: type=gha,mode=max,scope=table-order-production
-          build-args: |
-            NEXT_PUBLIC_APP_VERSION=${{ needs.release.outputs.new_version }}
-
-      # ============================================
-      # Backend Microservices
-      # ============================================
-
-      - name: Build and push Core Service
+      - name: Build and push ${{ matrix.service }}
         uses: docker/build-push-action@v5
         with:
           context: ./backend
-          file: ./backend/services/core/Dockerfile
+          file: ./backend/${{ matrix.dockerfile }}
           push: true
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-core:${{ needs.release.outputs.release_tag }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-core:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-core:production
-          cache-from: type=gha,scope=core-production
-          cache-to: type=gha,mode=max,scope=core-production
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.image }}:${{ needs.release.outputs.release_tag }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.image }}:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.image }}:production
+          cache-from: type=gha,scope=${{ matrix.service }}-production
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}-production
 
-      - name: Build and push Orders Service
-        uses: docker/build-push-action@v5
-        with:
-          context: ./backend
-          file: ./backend/services/orders/Dockerfile
-          push: true
-          tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-orders:${{ needs.release.outputs.release_tag }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-orders:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-orders:production
-          cache-from: type=gha,scope=orders-production
-          cache-to: type=gha,mode=max,scope=orders-production
-
-      - name: Build and push AI Service
-        uses: docker/build-push-action@v5
-        with:
-          context: ./backend
-          file: ./backend/services/ai/Dockerfile
-          push: true
-          tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-ai:${{ needs.release.outputs.release_tag }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-ai:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-ai:production
-          cache-from: type=gha,scope=ai-production
-          cache-to: type=gha,mode=max,scope=ai-production
-
-      - name: Build and push Notifications Service
-        uses: docker/build-push-action@v5
-        with:
-          context: ./backend
-          file: ./backend/services/notifications/Dockerfile
-          push: true
-          tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-notifications:${{ needs.release.outputs.release_tag }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-notifications:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-notifications:production
-          cache-from: type=gha,scope=notifications-production
-          cache-to: type=gha,mode=max,scope=notifications-production
-
+  # ============================================
+  # 4. Production Deploy (optional)
+  # ============================================
   deploy-production:
     name: Deploy to Production
     runs-on: ubuntu-latest
-    needs: [release, build-and-tag]
+    needs: [release, build-frontend, build-backend]
     if: github.event.inputs.deploy_to_production == 'true'
     environment:
       name: production
       url: https://gpilot.app
     steps:
-      # Docker images are tagged :latest by the build-and-tag job above.
-      # Watchtower on the production server polls for new :latest images and restarts automatically.
-
       - name: Notify Slack about Release
-        if: env.SLACK_WEBHOOK_URL != ''
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |
