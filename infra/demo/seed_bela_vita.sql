@@ -164,7 +164,7 @@ INSERT INTO tables (id, tenant_id, area_id, number, capacity, position_x, positi
 -- ============================================================================
 
 INSERT INTO menu_categories (id, tenant_id, name, description, sort_order, is_active, created_at, updated_at) VALUES
-    ('dddddddd-0001-0001-0001-dddddddddddd', '22222222-2222-2222-2222-222222222222', 'Antipasti',  'Vorspeisen aus der mediterranen Kueche',          1, true, NOW(), NOW()),
+    ('dddddddd-0001-0001-0001-dddddddddddd', '22222222-2222-2222-2222-222222222222', 'Antipasti',  'Vorspeisen aus der mediterranen Küche',          1, true, NOW(), NOW()),
     ('dddddddd-0002-0002-0002-dddddddddddd', '22222222-2222-2222-2222-222222222222', 'Pasta',      'Handgemachte Pasta – taeglich frisch',             2, true, NOW(), NOW()),
     ('dddddddd-0003-0003-0003-dddddddddddd', '22222222-2222-2222-2222-222222222222', 'Secondi',    'Hauptgerichte mit Fisch, Fleisch und Gemuese',     3, true, NOW(), NOW()),
     ('dddddddd-0004-0004-0004-dddddddddddd', '22222222-2222-2222-2222-222222222222', 'Pizza',      'Steinofen-Pizza nach neapolitanischer Tradition',  4, true, NOW(), NOW()),
@@ -380,7 +380,7 @@ INSERT INTO guests (id, tenant_id, first_name, last_name, email, phone, birthday
      'Giovanni', 'Bianchi',
      'giovanni.bianchi@example.de', '+49 172 3456703',
      '1990-11-08',
-     'Schwere Nuss-Allergie (Epipen). Immer Kueche informieren!',
+     'Schwere Nuss-Allergie (Epipen). Immer Küche informieren!',
      NOW(), NOW()),
 
     -- Stammgast 4: Geburtstag in naechsten 14 Tagen

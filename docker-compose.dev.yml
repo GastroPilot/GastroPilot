@@ -13,7 +13,8 @@
 #
 # Services:
 #   - nginx:         http://localhost:80   (Reverse Proxy)
-#   - Frontend:      http://localhost:3001
+#   - Web:           http://localhost:3000  (Webseite + Gästeportal)
+#   - Dashboard:     http://localhost:3001  (Restaurant-Dashboard)
 #   - Core:          http://localhost:8000  (via nginx)
 #   - Orders:        http://localhost:8001  (via nginx)
 #   - AI:            http://localhost:8002  (via nginx)
@@ -238,22 +239,23 @@ services:
       - orders
       - ai
       - notifications
-      - frontend
+      - web
+      - dashboard
     networks:
       - internal
 
   # ---------------------------------------------------------------------------
-  # Frontend (Next.js mit Hot Reload) – Restaurant Dashboard
+  # Web (Next.js) – Webseite + Gästeportal (gastropilot.de)
   # ---------------------------------------------------------------------------
-  frontend:
+  web:
     build:
       context: ./web
       dockerfile: Dockerfile
       target: deps
-    container_name: gp-dev-frontend
+    container_name: gp-dev-web
     restart: unless-stopped
     ports:
-      - "${FRONTEND_PORT:-3001}:3001"
+      - "${WEB_PORT:-3000}:3000"
     environment:
       NODE_ENV: development
       NEXT_PUBLIC_API_BASE_URL: http://localhost:${HTTP_PORT:-80}
@@ -263,8 +265,10 @@ services:
       - ./web/app:/app/app
       - ./web/components:/app/components
       - ./web/lib:/app/lib
-      - ./web/hooks:/app/hooks
       - ./web/public:/app/public
+      - ./web/i18n:/app/i18n
+      - ./web/messages:/app/messages
+      - ./web/middleware.ts:/app/middleware.ts
       - ./web/tsconfig.json:/app/tsconfig.json
       - ./web/next.config.ts:/app/next.config.ts
       - ./web/postcss.config.mjs:/app/postcss.config.mjs
@@ -276,37 +280,34 @@ services:
       - internal
 
   # ---------------------------------------------------------------------------
-  # Guest Portal (Next.js SSR) – Gast Web-Portal
+  # Dashboard (Next.js) – Restaurant-Dashboard (app.gastropilot.de)
   # ---------------------------------------------------------------------------
-  guest-portal:
+  dashboard:
     build:
-      context: ./guest-portal
+      context: ./dashboard
       dockerfile: Dockerfile
       target: deps
-    container_name: gp-dev-guest-portal
+    container_name: gp-dev-dashboard
     restart: unless-stopped
     ports:
-      - "${GUEST_PORTAL_PORT:-3002}:3002"
+      - "${DASHBOARD_PORT:-3001}:3001"
     environment:
       NODE_ENV: development
       NEXT_PUBLIC_API_BASE_URL: http://localhost:${HTTP_PORT:-80}
       SSR_API_BASE_URL: http://nginx:80
       NEXT_PUBLIC_API_PREFIX: api/v1
     volumes:
-      - ./guest-portal/app:/app/app
-      - ./guest-portal/components:/app/components
-      - ./guest-portal/lib:/app/lib
-      - ./guest-portal/public:/app/public
-      - ./guest-portal/tsconfig.json:/app/tsconfig.json
-      - ./guest-portal/next.config.ts:/app/next.config.ts
-      - ./guest-portal/postcss.config.mjs:/app/postcss.config.mjs
-      - ./guest-portal/i18n:/app/i18n
-      - ./guest-portal/messages:/app/messages
-      - ./guest-portal/middleware.ts:/app/middleware.ts
+      - ./dashboard/app:/app/app
+      - ./dashboard/components:/app/components
+      - ./dashboard/lib:/app/lib
+      - ./dashboard/hooks:/app/hooks
+      - ./dashboard/public:/app/public
+      - ./dashboard/tsconfig.json:/app/tsconfig.json
+      - ./dashboard/next.config.ts:/app/next.config.ts
+      - ./dashboard/postcss.config.mjs:/app/postcss.config.mjs
+      - ./dashboard/tailwind.config.ts:/app/tailwind.config.ts
       - /app/node_modules
       - /app/.next
-    depends_on:
-      - nginx
     command: sh -c "npm install && npm run dev"
     networks:
       - internal
