@@ -1,12 +1,5 @@
 # Changelog
 
-## [0.14.0] - 2026-03-18
-
-### Changes
-- refactor: replace guest-portal with dashboard in workflows and update submodule URLs (ef72d67)
-- added dashboard and web insted of frontend and guest portal (37ad54a)
-
-
 ## [0.13.1] - 2026-03-18
 
 ### Changes
