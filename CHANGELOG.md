@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.14.0] - 2026-03-18
+
+### Changes
+- Update VERSION (ac93784)
+- Remove version 0.14.0 entry from CHANGELOG (12128b5)
+- chore(release): 0.14.0 (78c17f9)
+- Update VERSION (90d2397)
+- Update CHANGELOG.md (f457303)
+- update submodule (8f6953e)
+- chore(release): 0.14.0 (b41b5c2)
+- refactor: replace guest-portal with dashboard in workflows and update submodule URLs (ef72d67)
+- added dashboard and web insted of frontend and guest portal (37ad54a)
+
+
 ## [0.13.1] - 2026-03-18
 
 ### Changes
