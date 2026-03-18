@@ -247,10 +247,6 @@ CREATE TABLE IF NOT EXISTS reservations (
     canceled_at TIMESTAMPTZ,
     canceled_reason TEXT,
     no_show_at TIMESTAMPTZ,
-    voucher_id UUID,
-    voucher_discount_amount FLOAT,
-    prepayment_required BOOLEAN NOT NULL DEFAULT FALSE,
-    prepayment_amount FLOAT,
     reminder_sent BOOLEAN DEFAULT FALSE,
     confirmation_sent BOOLEAN DEFAULT FALSE,
     source TEXT DEFAULT 'manual',
@@ -415,80 +411,6 @@ CREATE TABLE IF NOT EXISTS sumup_payments (
     completed_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS vouchers (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
-    code VARCHAR(64) UNIQUE NOT NULL,
-    name VARCHAR(240),
-    description TEXT,
-    type VARCHAR(32) NOT NULL DEFAULT 'fixed',
-    value FLOAT NOT NULL,
-    valid_from DATE,
-    valid_until DATE,
-    max_uses INTEGER,
-    used_count INTEGER NOT NULL DEFAULT 0,
-    min_order_value FLOAT,
-    is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    created_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS upsell_packages (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
-    name VARCHAR(240) NOT NULL,
-    description TEXT,
-    price FLOAT NOT NULL,
-    is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    available_from_date DATE,
-    available_until_date DATE,
-    min_party_size INTEGER,
-    max_party_size INTEGER,
-    available_times JSONB,
-    available_weekdays JSONB,
-    image_url VARCHAR(512),
-    display_order INTEGER NOT NULL DEFAULT 0,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS reservation_prepayments (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    reservation_id UUID NOT NULL REFERENCES reservations(id) ON DELETE CASCADE,
-    tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
-    amount FLOAT NOT NULL,
-    currency VARCHAR(3) NOT NULL DEFAULT 'EUR',
-    payment_provider VARCHAR(32) NOT NULL,
-    payment_id VARCHAR(128),
-    transaction_id VARCHAR(128),
-    status VARCHAR(32) NOT NULL DEFAULT 'pending',
-    payment_data JSONB,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    completed_at TIMESTAMPTZ
-);
-
-CREATE TABLE IF NOT EXISTS reservation_upsell_packages (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    reservation_id UUID NOT NULL REFERENCES reservations(id) ON DELETE CASCADE,
-    upsell_package_id UUID NOT NULL REFERENCES upsell_packages(id) ON DELETE CASCADE,
-    tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
-    price_at_time FLOAT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE(reservation_id, upsell_package_id)
-);
-
-CREATE TABLE IF NOT EXISTS voucher_usage (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    voucher_id UUID NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
-    reservation_id UUID REFERENCES reservations(id) ON DELETE SET NULL,
-    tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
-    used_by_email VARCHAR(255),
-    discount_amount FLOAT NOT NULL,
-    used_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS reservation_table_day_configs (
@@ -686,13 +608,6 @@ CREATE INDEX IF NOT EXISTS idx_order_items_menu_item_id ON order_items(menu_item
 CREATE INDEX IF NOT EXISTS idx_order_items_course ON order_items(order_id, course);
 CREATE INDEX IF NOT EXISTS idx_sumup_payments_tenant_id ON sumup_payments(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_sumup_payments_order_id ON sumup_payments(order_id);
-CREATE INDEX IF NOT EXISTS idx_vouchers_tenant_id ON vouchers(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_vouchers_code ON vouchers(code);
-CREATE INDEX IF NOT EXISTS idx_upsell_packages_tenant_id ON upsell_packages(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_reservation_prepayments_tenant_id ON reservation_prepayments(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_reservation_upsell_packages_tenant_id ON reservation_upsell_packages(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_voucher_usage_tenant_id ON voucher_usage(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_voucher_usage_voucher_id ON voucher_usage(voucher_id);
 CREATE INDEX IF NOT EXISTS idx_reservation_table_day_configs_tenant_id ON reservation_table_day_configs(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_messages_tenant_id ON messages(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_tenant_id ON audit_logs(tenant_id);
@@ -750,11 +665,6 @@ ALTER TABLE menu_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE order_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sumup_payments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE vouchers ENABLE ROW LEVEL SECURITY;
-ALTER TABLE upsell_packages ENABLE ROW LEVEL SECURITY;
-ALTER TABLE reservation_prepayments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE reservation_upsell_packages ENABLE ROW LEVEL SECURITY;
-ALTER TABLE voucher_usage ENABLE ROW LEVEL SECURITY;
 ALTER TABLE reservation_table_day_configs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
@@ -786,12 +696,7 @@ CREATE POLICY tenant_isolation ON menu_items USING (tenant_id = current_tenant_i
 CREATE POLICY tenant_isolation ON orders USING (tenant_id = current_tenant_id());
 CREATE POLICY tenant_isolation ON order_items USING (order_id IN (SELECT id FROM orders WHERE tenant_id = current_tenant_id()));
 CREATE POLICY tenant_isolation ON sumup_payments USING (tenant_id = current_tenant_id());
-CREATE POLICY tenant_isolation ON vouchers USING (tenant_id = current_tenant_id());
-CREATE POLICY tenant_isolation ON upsell_packages USING (tenant_id = current_tenant_id());
-CREATE POLICY tenant_isolation ON reservation_prepayments USING (tenant_id = current_tenant_id());
 CREATE POLICY tenant_isolation ON messages USING (tenant_id = current_tenant_id());
-CREATE POLICY tenant_isolation ON reservation_upsell_packages USING (tenant_id = current_tenant_id());
-CREATE POLICY tenant_isolation ON voucher_usage USING (tenant_id = current_tenant_id());
 CREATE POLICY tenant_isolation ON reservation_table_day_configs USING (tenant_id = current_tenant_id());
 CREATE POLICY tenant_isolation ON audit_logs USING (tenant_id = current_tenant_id());
 CREATE POLICY tenant_isolation ON reviews USING (tenant_id = current_tenant_id());
@@ -815,11 +720,8 @@ DO $$ BEGIN CREATE TRIGGER trg_tables_updated_at BEFORE UPDATE ON tables FOR EAC
 DO $$ BEGIN CREATE TRIGGER trg_reservations_updated_at BEFORE UPDATE ON reservations FOR EACH ROW EXECUTE FUNCTION update_updated_at(); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN CREATE TRIGGER trg_orders_updated_at BEFORE UPDATE ON orders FOR EACH ROW EXECUTE FUNCTION update_updated_at(); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN CREATE TRIGGER trg_menu_items_updated_at BEFORE UPDATE ON menu_items FOR EACH ROW EXECUTE FUNCTION update_updated_at(); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-DO $$ BEGIN CREATE TRIGGER trg_vouchers_updated_at BEFORE UPDATE ON vouchers FOR EACH ROW EXECUTE FUNCTION update_updated_at(); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN CREATE TRIGGER trg_guest_profiles_updated_at BEFORE UPDATE ON guest_profiles FOR EACH ROW EXECUTE FUNCTION update_updated_at(); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN CREATE TRIGGER trg_guests_updated_at BEFORE UPDATE ON guests FOR EACH ROW EXECUTE FUNCTION update_updated_at(); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-DO $$ BEGIN CREATE TRIGGER trg_upsell_packages_updated_at BEFORE UPDATE ON upsell_packages FOR EACH ROW EXECUTE FUNCTION update_updated_at(); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-DO $$ BEGIN CREATE TRIGGER trg_reservation_prepayments_updated_at BEFORE UPDATE ON reservation_prepayments FOR EACH ROW EXECUTE FUNCTION update_updated_at(); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN CREATE TRIGGER trg_sumup_payments_updated_at BEFORE UPDATE ON sumup_payments FOR EACH ROW EXECUTE FUNCTION update_updated_at(); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN CREATE TRIGGER trg_user_settings_updated_at BEFORE UPDATE ON user_settings FOR EACH ROW EXECUTE FUNCTION update_updated_at(); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN CREATE TRIGGER trg_table_day_configs_updated_at BEFORE UPDATE ON table_day_configs FOR EACH ROW EXECUTE FUNCTION update_updated_at(); EXCEPTION WHEN duplicate_object THEN NULL; END $$;

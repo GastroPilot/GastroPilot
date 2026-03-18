@@ -23,27 +23,37 @@ GastroPilot ist ein **Monorepo mit Git Submodules**:
 
 ```
 GastroPilot/
-├── .github/workflows/       # CI/CD Pipelines
-├── .github/ISSUE_TEMPLATE/  # Issue-Vorlagen für GitHub
-├── gastropilot-backend/     # FastAPI Backend (Submodule)
-├── gastropilot-frontend/    # Next.js Frontend (Submodule)
-├── gastropilot-app/         # Expo React Native App (Submodule)
-├── docker-compose.yml       # Staging-Umgebung
-├── VERSION                  # Aktuelle Version (semver)
-├── AUTHORS                  # Projektautoren
-├── LICENSE                  # Lizenzinformationen
-├── SECURITY.md              # Sicherheitsrichtlinien
-├── README.md                # Projektübersicht
-└── CHANGELOG.md             # Release-Historie
+├── .github/workflows/   # CI/CD Pipelines
+├── .github/ISSUE_TEMPLATE/
+├── backend/             # FastAPI Backend Microservices (Submodule)
+├── web/                 # Next.js Dashboard (Submodule)
+├── restaurant-app/      # Expo React Native App (Submodule)
+├── guest-portal/        # Guest Web Portal (Submodule)
+├── kds/                 # Kitchen Display System (Submodule)
+├── table-order/         # QR Table Ordering PWA (Submodule)
+├── infra/
+│   ├── demo/            # Demo-Environment Reset & Seeds
+│   ├── nginx/           # API Gateway Konfiguration
+│   └── sql/             # DB-Initialisierung & Migrations
+├── docker-compose.dev.yml   # Entwicklungsumgebung
+├── VERSION              # Aktuelle Version (semver)
+├── AUTHORS.md           # Projektautoren
+├── LICENSE              # Lizenzinformationen
+├── SECURITY.md          # Sicherheitsrichtlinien
+├── README.md            # Projektübersicht
+└── CHANGELOG.md         # Release-Historie
 ```
 
 ### Submodule-Repositories
 
 | Submodule | Repository |
 |-----------|------------|
-| Backend | `https://github.com/GastroPilot/gastropilot-backend.git` |
-| Frontend | `https://github.com/GastroPilot/gastropilot-frontend.git` |
-| App | `https://github.com/GastroPilot/gastropilot-app.git` |
+| Backend | `https://github.com/GastroPilot/backend.git` |
+| Frontend | `https://github.com/GastroPilot/web.git` |
+| App | `https://github.com/GastroPilot/restaurant-app.git` |
+| Guest Portal | `https://github.com/GastroPilot/gastropilot-guest-portal.git` |
+| KDS | `https://github.com/GastroPilot/gastropilot-kds.git` |
+| Table Order | `https://github.com/GastroPilot/gastropilot-table-order.git` |
 
 ---
 
@@ -111,7 +121,7 @@ git submodule update --init --recursive
 ### 2. Backend einrichten
 
 ```bash
-cd gastropilot-backend
+cd backend
 
 # Virtuelle Umgebung erstellen
 python -m venv venv
@@ -153,18 +163,18 @@ REDIS_URL=redis://localhost:6379/0
 
 ```bash
 # A) Nur Core (Auth/Tenant/Reservierungen etc., NICHT vollständige App-Funktion)
-cd gastropilot-backend/services/core
+cd backend/services/core
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 ```bash
 # B) Core + Orders (zwei Terminals)
 # Terminal 1
-cd gastropilot-backend/services/core
+cd backend/services/core
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 # Terminal 2
-cd gastropilot-backend/services/orders
+cd backend/services/orders
 uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
 ```
 
@@ -175,14 +185,10 @@ cd GastroPilot
 docker compose -f docker-compose.dev.yml --env-file .env.dev up -d
 ```
 
-> Hinweis: `uvicorn app.main:app` aus `gastropilot-backend` ohne `--app-dir services/core` startet den Legacy-Monolith unter `gastropilot-backend/app`.
->
-> Legacy-Referenz (nur Alt-System): `cd gastropilot-backend && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload`
-
 ### 3. Frontend einrichten
 
 ```bash
-cd gastropilot-frontend
+cd web
 
 # Dependencies installieren
 npm install
@@ -213,7 +219,7 @@ NEXT_PUBLIC_API_PREFIX=api/v1
 ### 4. Mobile App einrichten
 
 ```bash
-cd gastropilot-app
+cd restaurant-app
 
 # Dependencies installieren
 npm install
@@ -306,15 +312,18 @@ docker compose -f docker-compose.dev.yml --env-file .env.dev up -d ai notificati
 git submodule update --remote --merge
 
 # Oder nur ein spezifisches Submodule
-git submodule update --remote gastropilot-backend
-git submodule update --remote gastropilot-frontend
-git submodule update --remote gastropilot-app
+git submodule update --remote backend
+git submodule update --remote web
+git submodule update --remote restaurant-app
+git submodule update --remote gastropilot-guest-portal
+git submodule update --remote gastropilot-kds
+git submodule update --remote gastropilot-table-order
 ```
 
 ### In einem Submodule arbeiten (Feature)
 
 ```bash
-cd gastropilot-backend
+cd backend
 
 # Eigenen Branch erstellen
 git checkout -b feature/mein-feature
@@ -329,7 +338,7 @@ git push origin feature/mein-feature
 ### In einem Submodule arbeiten (Bugfix)
 
 ```bash
-cd gastropilot-backend
+cd backend
 
 # Eigenen Branch erstellen
 git checkout -b fix/mein-bugfix
@@ -348,12 +357,12 @@ Nach dem Merge eines PR im Submodule:
 
 ```bash
 # Im Root-Verzeichnis
-cd gastropilot-backend
+cd backend
 git checkout main
 git pull
 
 cd ..
-git add gastropilot-backend
+git add backend
 git commit -m "chore: update backend submodule"
 git push
 ```
@@ -412,7 +421,7 @@ git commit -m "docs: update API documentation"
 ### Backend
 
 ```bash
-cd gastropilot-backend
+cd backend
 
 # Linting
 ruff check .
@@ -429,7 +438,7 @@ isort .
 ### Frontend
 
 ```bash
-cd gastropilot-frontend
+cd web
 
 # Linting
 npm run lint
@@ -451,7 +460,7 @@ npm run type-check
 ### Backend Tests
 
 ```bash
-cd gastropilot-backend
+cd backend
 
 # Alle Tests ausführen
 pytest
@@ -466,7 +475,7 @@ pytest tests/test_reservations.py -v
 ### Frontend Tests
 
 ```bash
-cd gastropilot-frontend
+cd web
 
 # Unit/Integration Tests
 npm run test
@@ -484,36 +493,61 @@ npm run test:watch
 
 ### Umgebungen
 
-| Umgebung | Frontend | Backend | Datenbank | URL |
-|----------|----------|---------|-----------|-----|
-| Test | :3004 | :8004 | :5433 | test.gpilot.app |
-| Staging | :3003 | :8003 | :5433 | staging.gpilot.app |
-| Demo | :3002 | :8002 | :5432 | demo.gpilot.app |
-| Production | :3001 | :8001 | :5432 | gpilot.app |
+| Umgebung | URL | Deployment |
+|----------|-----|------------|
+| Development | localhost | `docker-compose.dev.yml` (lokal) |
+| Test | test.gastropilot.de | Automatisch via Submodule CI |
+| Staging | staging.gastropilot.de | Manuell via Deploy-Workflow |
+| Demo | demo.gastropilot.de | Manuell via Deploy-Workflow |
+| Production | gastropilot.de | Manuell via Release-Workflow |
 
-### Automatisches Deployment (CI/CD)
+### CI/CD Workflows
+
+#### Submodule CI/CD (automatisch)
+
+Jedes Submodule hat einen eigenen CI/CD-Workflow (`ci-cd.yml`). Bei Push auf `main` werden die Docker Images automatisch mit dem Tag `:test` gebaut und gepusht. Watchtower auf dem Test-Server aktualisiert die Container automatisch.
 
 ```
-Push auf main
+Push auf main (Submodule)
     ↓
 GitHub Actions: ci-cd.yml
-    ├── Backend bauen → Push zu ghcr.io
-    ├── Frontend bauen → Push zu ghcr.io
-    └── Deploy auf Staging
-        └── Health Checks
-            └── Slack Notification
+    ├── Lint & Build Check
+    └── Docker Build & Push → :test Tag
+        └── Watchtower → Test-Environment
 ```
 
-**Test:** Automatisch bei jedem Push mit `fix` oder `feat`-Präfix im Commit
+#### Deploy Workflow (manuell für Staging & Demo)
 
-**Staging:** Automatisch bei jedem Push auf `main`
+Für Staging und Demo wird der zentrale **Deploy**-Workflow im Haupt-Repo verwendet:
 
-**Demo/Production:** Manuell via GitHub Actions:
-
-1. Gehe zu **Actions** → **CI/CD Pipeline**
+1. Gehe zu **Actions** → **Deploy**
 2. Klicke auf **Run workflow**
-3. Wähle `demo` oder `production`
+3. Wähle:
+   - **Environment:** `staging` oder `demo`
+   - **Ref:** Branch oder Tag (z.B. `main`, `v0.13.0`)
+   - **Version:** App-Version als Text (wird als `NEXT_PUBLIC_APP_VERSION` übernommen)
 4. Klicke auf **Run workflow**
+
+Alle 8 Docker Images werden mit dem Environment-Tag (`:staging` oder `:demo`) gebaut und gepusht.
+
+#### Release Workflow (Production)
+
+Für Production wird der **Release**-Workflow verwendet. Die Release-Version wird automatisch als `NEXT_PUBLIC_APP_VERSION` übernommen.
+
+1. Gehe zu **Actions** → **Release**
+2. Wähle den Bump-Type (patch/minor/major)
+3. Optional: "Deploy to production" aktivieren
+
+Images werden mit `:v{version}`, `:latest` und `:production` getaggt.
+
+### Docker Image Tags pro Environment
+
+| Environment | Image Tag | Trigger |
+|-------------|-----------|---------|
+| Test | `:test` | Automatisch bei Push auf `main` (Submodule) |
+| Staging | `:staging` | Manuell via Deploy-Workflow |
+| Demo | `:demo` | Manuell via Deploy-Workflow |
+| Production | `:v{version}`, `:latest`, `:production` | Manuell via Release-Workflow |
 
 ### Manuelles Deployment
 
@@ -522,30 +556,18 @@ GitHub Actions: ci-cd.yml
 ssh user@server
 
 # Zum Umgebungsverzeichnis wechseln
-cd /opt/gastropilot/staging  # oder test/demo/production
-
-# Empfohlen (Staging): kontrolliertes Update inkl. Core-DB-Migration
-bash ./update-app.sh
+cd /opt/gastropilot/test  # oder staging/demo/production
 
 # Images pullen und neu starten
 docker compose pull
 docker compose up -d
 
-# Health Check
-curl http://localhost:8003/v1/health
-```
-
-Fallback (wenn `update-app.sh` nicht verfügbar ist):
-
-```bash
-docker compose pull
-docker compose up -d
+# DB-Migration (falls nötig)
 docker compose exec core alembic -c alembic.ini upgrade head
-```
 
-Hinweis:
-- In Staging sind `core` und `orders` für Watchtower auf `false` gesetzt.
-- Diese Services sollen nur über den kontrollierten Deploy-Flow aktualisiert werden, damit API- und DB-Schema-Stand konsistent bleiben.
+# Health Check
+curl http://localhost:8000/v1/health
+```
 
 ### Server-Struktur
 
@@ -773,16 +795,16 @@ docker compose -f docker-compose.dev.yml --env-file .env.dev up -d
 
 ```bash
 # Dependency Updates prüfen
-cd gastropilot-backend && pip list --outdated
-cd gastropilot-frontend && npm outdated
-cd gastropilot-app && npm outdated
+cd backend && pip list --outdated
+cd web && npm outdated
+cd restaurant-app && npm outdated
 ```
 
 ### Mobile App
 
 ```bash
 # Mobile App starten
-cd gastropilot-app && npx expo start
+cd restaurant-app && npx expo start
 ```
 
 ---

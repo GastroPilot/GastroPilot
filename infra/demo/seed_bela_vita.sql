@@ -47,7 +47,6 @@ DO $$ BEGIN
 
     -- Optionale Tabellen (existieren evtl. nicht in allen Environments)
     BEGIN DELETE FROM reviews  WHERE tenant_id = '22222222-2222-2222-2222-222222222222'; EXCEPTION WHEN undefined_table THEN NULL; END;
-    BEGIN DELETE FROM vouchers WHERE tenant_id = '22222222-2222-2222-2222-222222222222'; EXCEPTION WHEN undefined_table THEN NULL; END;
 
     DELETE FROM restaurants      WHERE id = '22222222-2222-2222-2222-222222222222';
 END $$;

@@ -97,17 +97,17 @@ jobs:
       - name: Update submodule VERSION files
         run: |
           # Update frontend VERSION
-          if [ -d "gastropilot-frontend" ]; then
-            echo "${{ steps.bump.outputs.new_version }}" > gastropilot-frontend/VERSION 2>/dev/null || true
+          if [ -d "web" ]; then
+            echo "${{ steps.bump.outputs.new_version }}" > web/VERSION 2>/dev/null || true
           fi
 
           # Update backend VERSION
-          if [ -d "gastropilot-backend" ]; then
-            echo "${{ steps.bump.outputs.new_version }}" > gastropilot-backend/VERSION 2>/dev/null || true
+          if [ -d "backend" ]; then
+            echo "${{ steps.bump.outputs.new_version }}" > backend/VERSION 2>/dev/null || true
           fi
 
           # Update new app VERSION files
-          for dir in gastropilot-guest-portal gastropilot-kds gastropilot-table-order; do
+          for dir in guest-portal kds table-order; do
             if [ -d "$dir" ]; then
               echo "${{ steps.bump.outputs.new_version }}" > "$dir/VERSION" 2>/dev/null || true
             fi
@@ -210,105 +210,121 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      # ============================================
+      # Frontend Apps (with NEXT_PUBLIC_APP_VERSION)
+      # ============================================
+
       - name: Build and push Frontend
         uses: docker/build-push-action@v5
         with:
-          context: ./gastropilot-frontend
+          context: ./web
           push: true
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-web:${{ needs.release.outputs.release_tag }}
             ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-web:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-web:production
+          cache-from: type=gha,scope=frontend-production
+          cache-to: type=gha,mode=max,scope=frontend-production
           build-args: |
             NEXT_PUBLIC_APP_VERSION=${{ needs.release.outputs.new_version }}
-
-      - name: Build and push Core Service
-        uses: docker/build-push-action@v5
-        with:
-          context: ./gastropilot-backend
-          file: ./gastropilot-backend/services/core/Dockerfile
-          push: true
-          tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-core:${{ needs.release.outputs.release_tag }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-core:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Build and push Orders Service
-        uses: docker/build-push-action@v5
-        with:
-          context: ./gastropilot-backend
-          file: ./gastropilot-backend/services/orders/Dockerfile
-          push: true
-          tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-orders:${{ needs.release.outputs.release_tag }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-orders:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Build and push AI Service
-        uses: docker/build-push-action@v5
-        with:
-          context: ./gastropilot-backend
-          file: ./gastropilot-backend/services/ai/Dockerfile
-          push: true
-          tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-ai:${{ needs.release.outputs.release_tag }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-ai:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Build and push Notifications Service
-        uses: docker/build-push-action@v5
-        with:
-          context: ./gastropilot-backend
-          file: ./gastropilot-backend/services/notifications/Dockerfile
-          push: true
-          tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-notifications:${{ needs.release.outputs.release_tag }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-notifications:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
 
       - name: Build and push Guest Portal
         uses: docker/build-push-action@v5
         with:
-          context: ./gastropilot-guest-portal
+          context: ./guest-portal
           push: true
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-guest-portal:${{ needs.release.outputs.release_tag }}
             ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-guest-portal:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-guest-portal:production
+          cache-from: type=gha,scope=guest-portal-production
+          cache-to: type=gha,mode=max,scope=guest-portal-production
           build-args: |
             NEXT_PUBLIC_APP_VERSION=${{ needs.release.outputs.new_version }}
 
       - name: Build and push KDS
         uses: docker/build-push-action@v5
         with:
-          context: ./gastropilot-kds
+          context: ./kds
           push: true
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-kds:${{ needs.release.outputs.release_tag }}
             ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-kds:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-kds:production
+          cache-from: type=gha,scope=kds-production
+          cache-to: type=gha,mode=max,scope=kds-production
           build-args: |
             NEXT_PUBLIC_APP_VERSION=${{ needs.release.outputs.new_version }}
 
       - name: Build and push Table Order
         uses: docker/build-push-action@v5
         with:
-          context: ./gastropilot-table-order
+          context: ./table-order
           push: true
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-table-order:${{ needs.release.outputs.release_tag }}
             ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-table-order:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-table-order:production
+          cache-from: type=gha,scope=table-order-production
+          cache-to: type=gha,mode=max,scope=table-order-production
           build-args: |
             NEXT_PUBLIC_APP_VERSION=${{ needs.release.outputs.new_version }}
+
+      # ============================================
+      # Backend Microservices
+      # ============================================
+
+      - name: Build and push Core Service
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          file: ./backend/services/core/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-core:${{ needs.release.outputs.release_tag }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-core:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-core:production
+          cache-from: type=gha,scope=core-production
+          cache-to: type=gha,mode=max,scope=core-production
+
+      - name: Build and push Orders Service
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          file: ./backend/services/orders/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-orders:${{ needs.release.outputs.release_tag }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-orders:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-orders:production
+          cache-from: type=gha,scope=orders-production
+          cache-to: type=gha,mode=max,scope=orders-production
+
+      - name: Build and push AI Service
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          file: ./backend/services/ai/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-ai:${{ needs.release.outputs.release_tag }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-ai:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-ai:production
+          cache-from: type=gha,scope=ai-production
+          cache-to: type=gha,mode=max,scope=ai-production
+
+      - name: Build and push Notifications Service
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          file: ./backend/services/notifications/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-notifications:${{ needs.release.outputs.release_tag }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-notifications:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-notifications:production
+          cache-from: type=gha,scope=notifications-production
+          cache-to: type=gha,mode=max,scope=notifications-production
 
   deploy-production:
     name: Deploy to Production

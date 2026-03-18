@@ -27,8 +27,3 @@ Thumbs.db
 *.tmp
 *.temp
 
-# Docker server environment
-docker/.env.server
-docker/ssl/
-docker/certbot/
-docker/install.sh
