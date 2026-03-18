@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.13.1] - 2026-03-18
+
+### Changes
+- updated workflows (07c3c9c)
+- version bump (d295041)
+- update submodule (dac1311)
+- removed upsell & voucher (dd1bffe)
+- Docker Dateien aufgeräumt. (e9adef2)
+- changed directories (2cd020a)
+- changed deploy (eed46a6)
+- update app submodule (34d9d5e)
+- chore: remove legacy deployment files and unused guest-app submodule (5fb0948)
+- updated submodule (5db8318)
+- fix sql.init.sql conflicts (839e002)
+- fixed nginx startup and alembic migrations (82e67f5)
+- init demo and more (b5ed950)
+- added jwt variables for orders service (5be2d8e)
+- added alembic db update to pipeline (0546fdb)
+- feat: add guest-portal, kds, table-order, guest-app as submodules with CI/CD (f31503d)
+
+
 ## [0.13.0] - 2026-03-02
 
 ### Changes
