@@ -1,13 +1,5 @@
 # Changelog
 
-## [0.14.0] - 2026-03-18
-
-### Changes
-- Update VERSION (90d2397)
-- Update CHANGELOG.md (f457303)
-- update submodule (8f6953e)
-
-
 ## [0.13.1] - 2026-03-18
 
 ### Changes
