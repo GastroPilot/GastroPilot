@@ -7,12 +7,15 @@
 [submodule "gastropilot-dashboard"]
 	path = dashboard
 	url = https://github.com/GastroPilot/gastropilot-dashboard.git
-[submodule "gastropilot-app"]
+[submodule "gastropilot-restaurantapp"]
 	path = restaurant-app
-	url = https://github.com/GastroPilot/gastropilot-app.git
+	url = https://github.com/GastroPilot/gastropilot-restaurantapp.git
 [submodule "gastropilot-kds"]
 	path = kds
 	url = https://github.com/GastroPilot/gastropilot-kds.git
 [submodule "gastropilot-table-order"]
 	path = table-order
 	url = https://github.com/GastroPilot/gastropilot-table-order.git
+[submodule "app"]
+	path = app
+	url = https://github.com/GastroPilot/gastropilot-app.git
