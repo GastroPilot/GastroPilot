@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.14.2] - 2026-04-04
+
+### Changes
+- fix(ci): Deploy-Matrix baut alle Services statt nur einzelne (b2cfdf7)
+- update submodule (80483a9)
+- feat: Multi-Environment Deploy-Workflow, Testdaten und Versions-Timestamp (5d0ad3c)
+
+
 ## [0.14.1] - 2026-04-04
 
 ### Changes
