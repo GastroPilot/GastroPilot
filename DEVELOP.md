@@ -33,9 +33,11 @@ GastroPilot/
 ├── table-order/         # QR Table Ordering PWA (Submodule)
 ├── infra/
 │   ├── demo/            # Demo-Environment Reset & Seeds
-│   ├── nginx/           # API Gateway Konfiguration
 │   └── sql/             # DB-Initialisierung & Migrations
-├── docker-compose.dev.yml   # Entwicklungsumgebung
+├── dev/                     # Entwicklungsumgebung (Docker Compose, nginx, .env)
+│   ├── docker-compose.yml
+│   ├── .env.example
+│   └── nginx/
 ├── VERSION              # Aktuelle Version (semver)
 ├── AUTHORS.md           # Projektautoren
 ├── LICENSE              # Lizenzinformationen
@@ -182,7 +184,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
 # C) Empfohlen für vollständige lokale Entwicklung:
 # nginx + core + orders + db + redis (+ optional ai/notifications)
 cd GastroPilot
-docker compose -f docker-compose.dev.yml --env-file .env.dev up -d
+docker compose -f dev/docker-compose.yml up -d
 ```
 
 ### 3. Frontend einrichten
@@ -204,7 +206,7 @@ npm run dev
 **Wichtige Umgebungsvariablen (.env.local):**
 
 ```bash
-# Empfohlen (nginx-Gateway aus docker-compose.dev.yml)
+# Empfohlen (nginx-Gateway aus dev/docker-compose.yml)
 NEXT_PUBLIC_API_BASE_URL=http://localhost:80
 NEXT_PUBLIC_API_PREFIX=api/v1
 
@@ -250,23 +252,22 @@ EXPO_PUBLIC_API_URL=http://localhost:8000/v1
 Die einfachste Methode - startet alle Services zusammen mit Hot-Reload:
 
 ```bash
-# Im Root-Verzeichnis
 # 1. Umgebungsvariablen kopieren
-cp .env.dev.example .env.dev
+cp dev/.env.example dev/.env
 
-# 2. Optional: .env.dev anpassen (Ports, Secrets, etc.)
+# 2. Optional: dev/.env anpassen (Ports, Secrets, etc.)
 
 # 3. Services starten
-docker compose -f docker-compose.dev.yml --env-file .env.dev up
+docker compose -f dev/docker-compose.yml up
 
 # Oder im Hintergrund:
-docker compose -f docker-compose.dev.yml --env-file .env.dev up -d
+docker compose -f dev/docker-compose.yml up -d
 
 # Logs anzeigen
-docker compose -f docker-compose.dev.yml --env-file .env.dev logs -f
+docker compose -f dev/docker-compose.yml logs -f
 
 # Services stoppen
-docker compose -f docker-compose.dev.yml --env-file .env.dev down
+docker compose -f dev/docker-compose.yml down
 ```
 
 **Verfügbare Services:**
@@ -292,13 +293,13 @@ Für mehr Kontrolle können Services auch einzeln gestartet werden:
 ```bash
 # Aus dem Root-Verzeichnis:
 # API-Basis für fast alle Flows: Core + Orders + DB + Redis + Gateway
-docker compose -f docker-compose.dev.yml --env-file .env.dev up -d postgres redis core orders nginx
+docker compose -f dev/docker-compose.yml up -d postgres redis core orders nginx
 
 # Frontend zusätzlich
-docker compose -f docker-compose.dev.yml --env-file .env.dev up -d frontend
+docker compose -f dev/docker-compose.yml up -d frontend
 
 # Optional bei Bedarf
-docker compose -f docker-compose.dev.yml --env-file .env.dev up -d ai notifications notifications-worker
+docker compose -f dev/docker-compose.yml up -d ai notifications notifications-worker
 ```
 
 ---
@@ -495,7 +496,7 @@ npm run test:watch
 
 | Umgebung | URL | Deployment |
 |----------|-----|------------|
-| Development | localhost | `docker-compose.dev.yml` (lokal) |
+| Development | localhost | `dev/docker-compose.yml` (lokal) |
 | Test | test.gastropilot.de | Automatisch via Submodule CI |
 | Staging | staging.gastropilot.de | Manuell via Deploy-Workflow |
 | Demo | demo.gastropilot.de | Manuell via Deploy-Workflow |
@@ -733,62 +734,62 @@ git submodule update --remote --merge
 
 ```bash
 # Komplette Dev-Umgebung starten
-docker compose -f docker-compose.dev.yml --env-file .env.dev up -d
+docker compose -f dev/docker-compose.yml up -d
 
 # Services neu bauen
-docker compose -f docker-compose.dev.yml --env-file .env.dev build
+docker compose -f dev/docker-compose.yml build
 
 # Logs anzeigen (alle Services)
-docker compose -f docker-compose.dev.yml --env-file .env.dev logs -f
+docker compose -f dev/docker-compose.yml logs -f
 
 # Logs für einzelnen Service
-docker compose -f docker-compose.dev.yml --env-file .env.dev logs -f core
-docker compose -f docker-compose.dev.yml --env-file .env.dev logs -f orders
-docker compose -f docker-compose.dev.yml --env-file .env.dev logs -f frontend
-docker compose -f docker-compose.dev.yml --env-file .env.dev logs -f postgres
+docker compose -f dev/docker-compose.yml logs -f core
+docker compose -f dev/docker-compose.yml logs -f orders
+docker compose -f dev/docker-compose.yml logs -f frontend
+docker compose -f dev/docker-compose.yml logs -f postgres
 
 # In Container einloggen
-docker compose -f docker-compose.dev.yml --env-file .env.dev exec core sh
-docker compose -f docker-compose.dev.yml --env-file .env.dev exec orders sh
-docker compose -f docker-compose.dev.yml --env-file .env.dev exec frontend sh
-docker compose -f docker-compose.dev.yml --env-file .env.dev exec postgres psql -U gastropilot -d gastropilot
+docker compose -f dev/docker-compose.yml exec core sh
+docker compose -f dev/docker-compose.yml exec orders sh
+docker compose -f dev/docker-compose.yml exec frontend sh
+docker compose -f dev/docker-compose.yml exec postgres psql -U gastropilot -d gastropilot
 
 # Services stoppen
-docker compose -f docker-compose.dev.yml --env-file .env.dev down
+docker compose -f dev/docker-compose.yml down
 
 # Services stoppen und Volumes löschen (Datenbank wird zurückgesetzt!)
-docker compose -f docker-compose.dev.yml --env-file .env.dev down -v
+docker compose -f dev/docker-compose.yml down -v
 
 # Service neu starten
-docker compose -f docker-compose.dev.yml --env-file .env.dev restart core
-docker compose -f docker-compose.dev.yml --env-file .env.dev restart orders
+docker compose -f dev/docker-compose.yml restart core
+docker compose -f dev/docker-compose.yml restart orders
 ```
 
 ### Einzelne Services (Alternative)
 
 ```bash
 # Core + Orders + Database + Redis + Gateway
-docker compose -f docker-compose.dev.yml --env-file .env.dev up -d postgres redis core orders nginx
-docker compose -f docker-compose.dev.yml --env-file .env.dev logs -f core
-docker compose -f docker-compose.dev.yml --env-file .env.dev logs -f orders
+docker compose -f dev/docker-compose.yml up -d postgres redis core orders nginx
+docker compose -f dev/docker-compose.yml logs -f core
+docker compose -f dev/docker-compose.yml logs -f orders
 
 # Frontend
-docker compose -f docker-compose.dev.yml --env-file .env.dev up -d frontend
-docker compose -f docker-compose.dev.yml --env-file .env.dev logs -f frontend
+docker compose -f dev/docker-compose.yml up -d frontend
+docker compose -f dev/docker-compose.yml logs -f frontend
 ```
 
 ### Datenbank
 
 ```bash
 # Datenbank-Migration (Core)
-docker compose -f docker-compose.dev.yml --env-file .env.dev exec core alembic upgrade head
+docker compose -f dev/docker-compose.yml exec core alembic upgrade head
 
-# PostgreSQL CLI (wenn mit docker-compose.dev.yml gestartet)
-docker compose -f docker-compose.dev.yml --env-file .env.dev exec postgres psql -U gastropilot -d gastropilot
+# PostgreSQL CLI (wenn mit dev/docker-compose.yml gestartet)
+docker compose -f dev/docker-compose.yml exec postgres psql -U gastropilot -d gastropilot
 
 # Datenbank zurücksetzen
-docker compose -f docker-compose.dev.yml --env-file .env.dev down -v
-docker compose -f docker-compose.dev.yml --env-file .env.dev up -d
+docker compose -f dev/docker-compose.yml down -v
+docker compose -f dev/docker-compose.yml up -d
 ```
 
 ### Dependencies
@@ -823,17 +824,17 @@ git submodule update --init --recursive
 
 ```bash
 # Development Environment: Alle Container stoppen und entfernen
-docker compose -f docker-compose.dev.yml --env-file .env.dev down -v
+docker compose -f dev/docker-compose.yml down -v
 
 # Images neu bauen
-docker compose -f docker-compose.dev.yml --env-file .env.dev build --no-cache
+docker compose -f dev/docker-compose.yml build --no-cache
 
 # Neu starten
-docker compose -f docker-compose.dev.yml --env-file .env.dev up -d
+docker compose -f dev/docker-compose.yml up -d
 
 # Nur Core frisch bauen/starten
-docker compose -f docker-compose.dev.yml --env-file .env.dev build --no-cache core
-docker compose -f docker-compose.dev.yml --env-file .env.dev up -d core
+docker compose -f dev/docker-compose.yml build --no-cache core
+docker compose -f dev/docker-compose.yml up -d core
 ```
 
 ### Port bereits belegt

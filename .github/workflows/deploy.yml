@@ -4,10 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       environment:
-        description: 'Ziel-Environment (Staging oder Demo)'
+        description: 'Ziel-Environment (Test, Staging oder Demo)'
         required: true
         type: choice
         options:
+          - test
           - staging
           - demo
       ref:

@@ -2,18 +2,18 @@
 # GastroPilot – Microservices Development Stack
 # =============================================================================
 # Lokale Entwicklungsumgebung mit allen 4 Services + nginx + postgres + redis
-# Alle Services mit Hot-Reload für schnelle Entwicklung.
+# Alle Services mit Hot-Reload fuer schnelle Entwicklung.
 #
 # Voraussetzung: .env-Datei anlegen (siehe .env.example)
 #
-# Starten:    docker compose -f docker-compose.dev.yml up -d
-# Stoppen:    docker compose -f docker-compose.dev.yml down
-# Logs:       docker compose -f docker-compose.dev.yml logs -f [service]
-# Migration:  docker compose -f docker-compose.dev.yml exec core alembic upgrade head
+# Starten:    docker compose up -d
+# Stoppen:    docker compose down
+# Logs:       docker compose logs -f [service]
+# Migration:  docker compose exec core alembic upgrade head
 #
 # Services:
 #   - nginx:         http://localhost:80   (Reverse Proxy)
-#   - Web:           http://localhost:3000  (Webseite + Gästeportal)
+#   - Web:           http://localhost:3000  (Webseite + Gaesteportal)
 #   - Dashboard:     http://localhost:3001  (Restaurant-Dashboard)
 #   - Core:          http://localhost:8000  (via nginx)
 #   - Orders:        http://localhost:8001  (via nginx)
@@ -39,8 +39,8 @@ services:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./infra/sql/init.sql:/docker-entrypoint-initdb.d/01_init.sql
-      - ./infra/sql/rls.sql:/docker-entrypoint-initdb.d/02_rls.sql
+      - ../infra/sql/init.sql:/docker-entrypoint-initdb.d/01_init.sql
+      - ../infra/sql/rls.sql:/docker-entrypoint-initdb.d/02_rls.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-gastropilot} -d ${POSTGRES_DB:-gastropilot}"]
       interval: 10s
@@ -67,15 +67,15 @@ services:
       - internal
 
   # ---------------------------------------------------------------------------
-  # Core Service (Auth, Users, Restaurants, Reservierungen, Menü)
+  # Core Service (Auth, Users, Restaurants, Reservierungen, Menue)
   # ---------------------------------------------------------------------------
   core:
     build:
-      context: ./backend
+      context: ../backend
       dockerfile: services/core/Dockerfile
     container_name: gp-dev-core
     restart: unless-stopped
-    env_file: ./backend/services/core/.env
+    env_file: ../backend/services/core/.env
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-gastropilot}:${POSTGRES_PASSWORD:-gastropilot}@postgres:5432/${POSTGRES_DB:-gastropilot}
       DATABASE_ADMIN_URL: postgresql+asyncpg://${POSTGRES_USER:-gastropilot}:${POSTGRES_PASSWORD:-gastropilot}@postgres:5432/${POSTGRES_DB:-gastropilot}
@@ -87,8 +87,8 @@ services:
       MINIO_BUCKET: gastropilot-uploads
       MINIO_PUBLIC_URL: http://localhost:9000/gastropilot-uploads
     volumes:
-      - ./backend/services/core/app:/app/app
-      - ./backend/packages:/packages
+      - ../backend/services/core/app:/app/app
+      - ../backend/packages:/packages
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     depends_on:
       postgres:
@@ -111,19 +111,19 @@ services:
   # ---------------------------------------------------------------------------
   orders:
     build:
-      context: ./backend
+      context: ../backend
       dockerfile: services/orders/Dockerfile
     container_name: gp-dev-orders
     restart: unless-stopped
-    env_file: ./backend/services/orders/.env
+    env_file: ../backend/services/orders/.env
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-gastropilot}:${POSTGRES_PASSWORD:-gastropilot}@postgres:5432/${POSTGRES_DB:-gastropilot}
       DATABASE_ADMIN_URL: postgresql+asyncpg://${POSTGRES_USER:-gastropilot}:${POSTGRES_PASSWORD:-gastropilot}@postgres:5432/${POSTGRES_DB:-gastropilot}
       REDIS_URL: redis://redis:6379/0
       ENVIRONMENT: development
     volumes:
-      - ./backend/services/orders/app:/app/app
-      - ./backend/packages:/packages
+      - ../backend/services/orders/app:/app/app
+      - ../backend/packages:/packages
     command: uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
     depends_on:
       postgres:
@@ -144,17 +144,17 @@ services:
   # ---------------------------------------------------------------------------
   ai:
     build:
-      context: ./backend
+      context: ../backend
       dockerfile: services/ai/Dockerfile
     container_name: gp-dev-ai
     restart: unless-stopped
-    env_file: ./backend/services/ai/.env
+    env_file: ../backend/services/ai/.env
     environment:
       REDIS_URL: redis://redis:6379/0
       ENVIRONMENT: development
     volumes:
-      - ./backend/services/ai/app:/app/app
-      - ./backend/packages:/packages
+      - ../backend/services/ai/app:/app/app
+      - ../backend/packages:/packages
     command: uvicorn app.main:app --host 0.0.0.0 --port 8002 --reload
     depends_on:
       redis:
@@ -173,19 +173,19 @@ services:
   # ---------------------------------------------------------------------------
   notifications:
     build:
-      context: ./backend
+      context: ../backend
       dockerfile: services/notifications/Dockerfile
     container_name: gp-dev-notifications
     restart: unless-stopped
-    env_file: ./backend/services/notifications/.env
+    env_file: ../backend/services/notifications/.env
     environment:
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/1
       CELERY_RESULT_BACKEND: redis://redis:6379/2
       ENVIRONMENT: development
     volumes:
-      - ./backend/services/notifications/app:/app/app
-      - ./backend/packages:/packages
+      - ../backend/services/notifications/app:/app/app
+      - ../backend/packages:/packages
     command: uvicorn app.main:app --host 0.0.0.0 --port 8003 --reload
     depends_on:
       redis:
@@ -199,22 +199,22 @@ services:
     networks:
       - internal
 
-  # Celery Worker für Notifications
+  # Celery Worker fuer Notifications
   notifications-worker:
     build:
-      context: ./backend
+      context: ../backend
       dockerfile: services/notifications/Dockerfile
     container_name: gp-dev-notifications-worker
     restart: unless-stopped
-    env_file: ./backend/services/notifications/.env
+    env_file: ../backend/services/notifications/.env
     environment:
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/1
       CELERY_RESULT_BACKEND: redis://redis:6379/2
       ENVIRONMENT: development
     volumes:
-      - ./backend/services/notifications/app:/app/app
-      - ./backend/packages:/packages
+      - ../backend/services/notifications/app:/app/app
+      - ../backend/packages:/packages
     command: celery -A app.worker.celery_app worker --loglevel=info --concurrency=2
     depends_on:
       redis:
@@ -232,8 +232,8 @@ services:
     ports:
       - "${HTTP_PORT:-80}:80"
     volumes:
-      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./infra/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
     depends_on:
       - core
       - orders
@@ -245,11 +245,11 @@ services:
       - internal
 
   # ---------------------------------------------------------------------------
-  # Web (Next.js) – Webseite + Gästeportal (gastropilot.de)
+  # Web (Next.js) – Webseite + Gaesteportal
   # ---------------------------------------------------------------------------
   web:
     build:
-      context: ./web
+      context: ../web
       dockerfile: Dockerfile
       target: deps
     container_name: gp-dev-web
@@ -262,17 +262,17 @@ services:
       SSR_API_BASE_URL: http://nginx:80
       NEXT_PUBLIC_API_PREFIX: api/v1
     volumes:
-      - ./web/app:/app/app
-      - ./web/components:/app/components
-      - ./web/lib:/app/lib
-      - ./web/public:/app/public
-      - ./web/i18n:/app/i18n
-      - ./web/messages:/app/messages
-      - ./web/middleware.ts:/app/middleware.ts
-      - ./web/tsconfig.json:/app/tsconfig.json
-      - ./web/next.config.ts:/app/next.config.ts
-      - ./web/postcss.config.mjs:/app/postcss.config.mjs
-      - ./web/tailwind.config.ts:/app/tailwind.config.ts
+      - ../web/app:/app/app
+      - ../web/components:/app/components
+      - ../web/lib:/app/lib
+      - ../web/public:/app/public
+      - ../web/i18n:/app/i18n
+      - ../web/messages:/app/messages
+      - ../web/middleware.ts:/app/middleware.ts
+      - ../web/tsconfig.json:/app/tsconfig.json
+      - ../web/next.config.ts:/app/next.config.ts
+      - ../web/postcss.config.mjs:/app/postcss.config.mjs
+      - ../web/tailwind.config.ts:/app/tailwind.config.ts
       - /app/node_modules
       - /app/.next
     command: sh -c "npm install && npm run dev"
@@ -280,11 +280,11 @@ services:
       - internal
 
   # ---------------------------------------------------------------------------
-  # Dashboard (Next.js) – Restaurant-Dashboard (app.gastropilot.de)
+  # Dashboard (Next.js) – Restaurant-Dashboard
   # ---------------------------------------------------------------------------
   dashboard:
     build:
-      context: ./dashboard
+      context: ../dashboard
       dockerfile: Dockerfile
       target: deps
     container_name: gp-dev-dashboard
@@ -297,15 +297,15 @@ services:
       SSR_API_BASE_URL: http://nginx:80
       NEXT_PUBLIC_API_PREFIX: api/v1
     volumes:
-      - ./dashboard/app:/app/app
-      - ./dashboard/components:/app/components
-      - ./dashboard/lib:/app/lib
-      - ./dashboard/hooks:/app/hooks
-      - ./dashboard/public:/app/public
-      - ./dashboard/tsconfig.json:/app/tsconfig.json
-      - ./dashboard/next.config.ts:/app/next.config.ts
-      - ./dashboard/postcss.config.mjs:/app/postcss.config.mjs
-      - ./dashboard/tailwind.config.ts:/app/tailwind.config.ts
+      - ../dashboard/app:/app/app
+      - ../dashboard/components:/app/components
+      - ../dashboard/lib:/app/lib
+      - ../dashboard/hooks:/app/hooks
+      - ../dashboard/public:/app/public
+      - ../dashboard/tsconfig.json:/app/tsconfig.json
+      - ../dashboard/next.config.ts:/app/next.config.ts
+      - ../dashboard/postcss.config.mjs:/app/postcss.config.mjs
+      - ../dashboard/tailwind.config.ts:/app/tailwind.config.ts
       - /app/node_modules
       - /app/.next
     command: sh -c "npm install && npm run dev"
@@ -317,7 +317,7 @@ services:
   # ---------------------------------------------------------------------------
   table-order:
     build:
-      context: ./table-order
+      context: ../table-order
       dockerfile: Dockerfile
       target: deps
     container_name: gp-dev-table-order
@@ -330,13 +330,13 @@ services:
       SSR_API_BASE_URL: http://nginx:80
       NEXT_PUBLIC_API_PREFIX: api/v1
     volumes:
-      - ./table-order/app:/app/app
-      - ./table-order/components:/app/components
-      - ./table-order/lib:/app/lib
-      - ./table-order/public:/app/public
-      - ./table-order/tsconfig.json:/app/tsconfig.json
-      - ./table-order/next.config.ts:/app/next.config.ts
-      - ./table-order/postcss.config.mjs:/app/postcss.config.mjs
+      - ../table-order/app:/app/app
+      - ../table-order/components:/app/components
+      - ../table-order/lib:/app/lib
+      - ../table-order/public:/app/public
+      - ../table-order/tsconfig.json:/app/tsconfig.json
+      - ../table-order/next.config.ts:/app/next.config.ts
+      - ../table-order/postcss.config.mjs:/app/postcss.config.mjs
       - /app/node_modules
       - /app/.next
     depends_on:
@@ -350,7 +350,7 @@ services:
   # ---------------------------------------------------------------------------
   kds:
     build:
-      context: ./kds
+      context: ../kds
       dockerfile: Dockerfile
       target: deps
     container_name: gp-dev-kds
@@ -364,13 +364,13 @@ services:
       NEXT_PUBLIC_API_PREFIX: api/v1
       NEXT_PUBLIC_WS_URL: ws://localhost:${HTTP_PORT:-80}/ws
     volumes:
-      - ./kds/app:/app/app
-      - ./kds/components:/app/components
-      - ./kds/lib:/app/lib
-      - ./kds/public:/app/public
-      - ./kds/tsconfig.json:/app/tsconfig.json
-      - ./kds/next.config.ts:/app/next.config.ts
-      - ./kds/postcss.config.mjs:/app/postcss.config.mjs
+      - ../kds/app:/app/app
+      - ../kds/components:/app/components
+      - ../kds/lib:/app/lib
+      - ../kds/public:/app/public
+      - ../kds/tsconfig.json:/app/tsconfig.json
+      - ../kds/next.config.ts:/app/next.config.ts
+      - ../kds/postcss.config.mjs:/app/postcss.config.mjs
       - /app/node_modules
       - /app/.next
     depends_on:
@@ -380,7 +380,7 @@ services:
       - internal
 
   # ---------------------------------------------------------------------------
-  # Minio (S3-kompatibler Object Storage für Bilder)
+  # Minio (S3-kompatibler Object Storage fuer Bilder)
   # ---------------------------------------------------------------------------
   minio:
     image: minio/minio:latest
