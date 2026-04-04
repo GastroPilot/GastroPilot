@@ -3,8 +3,8 @@
 # GastroPilot Version Generator
 # =============================================================================
 # Generiert Versionsstrings im Format:
-#   vmajor.minor.patch-YYYYMMDD-environment   (non-production)
-#   vmajor.minor.patch-YYYYMMDD               (production)
+#   vmajor.minor.patch-YYYYMMDD-HHmmss-environment   (non-production)
+#   vmajor.minor.patch-YYYYMMDD-HHmmss-prod          (production)
 #
 # Usage:
 #   ./scripts/version.sh <component> [environment]
@@ -13,9 +13,9 @@
 # Environments: staging, demo, development, production (default: development)
 #
 # Beispiele:
-#   ./scripts/version.sh web staging        → v0.14.0-20260320-staging
-#   ./scripts/version.sh core production    → v2.0.0-20260320
-#   ./scripts/version.sh kds               → v0.1.0-20260320-development
+#   ./scripts/version.sh web staging        → v0.14.0-20260320-143025-staging
+#   ./scripts/version.sh core production    → v2.0.0-20260320-143025-prod
+#   ./scripts/version.sh kds               → v0.1.0-20260320-143025-development
 # =============================================================================
 
 set -euo pipefail
@@ -26,6 +26,8 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 COMPONENT="${1:-}"
 ENVIRONMENT="${2:-development}"
 BUILD_DATE="${BUILD_DATE:-$(date +%Y%m%d)}"
+BUILD_TIME="${BUILD_TIME:-$(date +%H%M%S)}"
+BUILD_TIMESTAMP="${BUILD_DATE}-${BUILD_TIME}"
 
 if [ -z "$COMPONENT" ]; then
   echo "Usage: $0 <component> [environment]" >&2
@@ -74,9 +76,9 @@ case "$COMPONENT" in
 esac
 
 if [ "$ENVIRONMENT" = "production" ]; then
-  FULL_VERSION="v${BASE_VERSION}-${BUILD_DATE}"
+  FULL_VERSION="v${BASE_VERSION}-${BUILD_TIMESTAMP}-prod"
 else
-  FULL_VERSION="v${BASE_VERSION}-${BUILD_DATE}-${ENVIRONMENT}"
+  FULL_VERSION="v${BASE_VERSION}-${BUILD_TIMESTAMP}-${ENVIRONMENT}"
 fi
 
 echo "$FULL_VERSION"
