@@ -1,0 +1,514 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Ziel-Environment'
+        required: true
+        type: choice
+        options:
+          - test
+          - staging
+          - demo
+          - all
+      services:
+        description: 'Services die gebaut werden (all = alle 8 Services)'
+        required: true
+        type: choice
+        default: 'all'
+        options:
+          - all
+          - frontend
+          - backend
+          - web
+          - dashboard
+          - kds
+          - table-order
+          - core
+          - orders
+          - ai
+          - notifications
+      ref:
+        description: 'Code-Stand (Branch oder Tag, z.B. "main")'
+        required: true
+        type: string
+        default: 'main'
+      version_bump:
+        description: 'RC-Version: auto = nächste RC-Nummer, patch/minor/major = neuer Zyklus'
+        required: true
+        type: choice
+        default: 'auto'
+        options:
+          - auto
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+
+jobs:
+  # ============================================
+  # 1. RC-Version bestimmen + taggen
+  # ============================================
+  prepare:
+    name: Prepare
+    runs-on: ubuntu-latest
+    outputs:
+      environments: ${{ steps.set-envs.outputs.environments }}
+      rc_version: ${{ steps.rc.outputs.rc_version }}
+      build_date: ${{ steps.rc.outputs.build_date }}
+      build_web: ${{ steps.services.outputs.web }}
+      build_dashboard: ${{ steps.services.outputs.dashboard }}
+      build_kds: ${{ steps.services.outputs.kds }}
+      build_table_order: ${{ steps.services.outputs.table_order }}
+      build_core: ${{ steps.services.outputs.core }}
+      build_orders: ${{ steps.services.outputs.orders }}
+      build_ai: ${{ steps.services.outputs.ai }}
+      build_notifications: ${{ steps.services.outputs.notifications }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          ref: ${{ github.event.inputs.ref }}
+          token: ${{ secrets.SUBMODULE_PAT }}
+          fetch-depth: 0
+
+      - name: Environments bestimmen
+        id: set-envs
+        env:
+          INPUT_ENV: ${{ github.event.inputs.environment }}
+        run: |
+          if [ "$INPUT_ENV" = "all" ]; then
+            echo 'environments=["test","staging","demo"]' >> "$GITHUB_OUTPUT"
+          else
+            echo "environments=[\"$INPUT_ENV\"]" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Services bestimmen
+        id: services
+        env:
+          INPUT_SERVICES: ${{ github.event.inputs.services }}
+        run: |
+          # Defaults: alles false
+          WEB=false; DASH=false; KDS=false; TO=false
+          CORE=false; ORDERS=false; AI=false; NOTIF=false
+
+          case "$INPUT_SERVICES" in
+            all)           WEB=true; DASH=true; KDS=true; TO=true; CORE=true; ORDERS=true; AI=true; NOTIF=true ;;
+            frontend)      WEB=true; DASH=true; KDS=true; TO=true ;;
+            backend)       CORE=true; ORDERS=true; AI=true; NOTIF=true ;;
+            web)           WEB=true ;;
+            dashboard)     DASH=true ;;
+            kds)           KDS=true ;;
+            table-order)   TO=true ;;
+            core)          CORE=true ;;
+            orders)        ORDERS=true ;;
+            ai)            AI=true ;;
+            notifications) NOTIF=true ;;
+          esac
+
+          echo "web=$WEB" >> "$GITHUB_OUTPUT"
+          echo "dashboard=$DASH" >> "$GITHUB_OUTPUT"
+          echo "kds=$KDS" >> "$GITHUB_OUTPUT"
+          echo "table_order=$TO" >> "$GITHUB_OUTPUT"
+          echo "core=$CORE" >> "$GITHUB_OUTPUT"
+          echo "orders=$ORDERS" >> "$GITHUB_OUTPUT"
+          echo "ai=$AI" >> "$GITHUB_OUTPUT"
+          echo "notifications=$NOTIF" >> "$GITHUB_OUTPUT"
+
+      - name: RC-Version berechnen
+        id: rc
+        env:
+          BUMP_TYPE: ${{ github.event.inputs.version_bump }}
+          INPUT_SERVICES: ${{ github.event.inputs.services }}
+        run: |
+          chmod +x scripts/bump-rc.sh
+          BUILD_DATE=$(date +%Y%m%d-%H%M%S)
+
+          # Service-spezifische RC oder Plattform-RC
+          case "$INPUT_SERVICES" in
+            all|frontend|backend)
+              RC_VERSION=$(scripts/bump-rc.sh "$BUMP_TYPE")
+              ;;
+            *)
+              RC_VERSION=$(scripts/bump-rc.sh "$BUMP_TYPE" "$INPUT_SERVICES")
+              ;;
+          esac
+
+          echo "rc_version=${RC_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "build_date=${BUILD_DATE}" >> "$GITHUB_OUTPUT"
+          echo "RC: ${RC_VERSION} | Build: ${BUILD_DATE}"
+
+      - name: VERSION aktualisieren + taggen
+        env:
+          RC_VERSION: ${{ steps.rc.outputs.rc_version }}
+          INPUT_SERVICES: ${{ github.event.inputs.services }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # VERSION nur bei Plattform-RC aktualisieren (nicht bei einzelnem Service)
+          case "$INPUT_SERVICES" in
+            all|frontend|backend)
+              echo "$RC_VERSION" > VERSION
+              git add VERSION
+              git commit -m "chore: bump to ${RC_VERSION}" || echo "Keine Änderungen"
+              ;;
+          esac
+
+          git tag -a "v${RC_VERSION}" -m "RC ${RC_VERSION}"
+          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
+          git push origin HEAD:main --follow-tags 2>/dev/null || git push origin --tags
+
+      - name: Summary
+        env:
+          INPUT_ENV: ${{ github.event.inputs.environment }}
+          INPUT_SERVICES: ${{ github.event.inputs.services }}
+          INPUT_REF: ${{ github.event.inputs.ref }}
+          RC_VERSION: ${{ steps.rc.outputs.rc_version }}
+          BUILD_DATE: ${{ steps.rc.outputs.build_date }}
+        run: |
+          echo "## Deploy Configuration" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Setting | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---------|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Environments | $INPUT_ENV |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Services | $INPUT_SERVICES |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Ref | $INPUT_REF |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **RC-Version** | **v${RC_VERSION}** |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Build-Date | $BUILD_DATE |" >> "$GITHUB_STEP_SUMMARY"
+
+  # ============================================
+  # 2. Frontend Builds (nur ausgewählte)
+  # ============================================
+  build-web:
+    name: "[${{ matrix.env }}] Build web"
+    if: needs.prepare.outputs.build_web == 'true'
+    runs-on: ubuntu-latest
+    needs: prepare
+    strategy:
+      matrix:
+        env: ${{ fromJson(needs.prepare.outputs.environments) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          ref: ${{ github.event.inputs.ref }}
+          token: ${{ secrets.SUBMODULE_PAT }}
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - uses: docker/build-push-action@v5
+        with:
+          context: ./web
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-web:${{ matrix.env }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-web:sha-${{ github.sha }}
+          cache-from: type=gha,scope=web-${{ matrix.env }}
+          cache-to: type=gha,mode=max,scope=web-${{ matrix.env }}
+          build-args: |
+            NEXT_PUBLIC_APP_VERSION=${{ needs.prepare.outputs.rc_version }}
+            NEXT_PUBLIC_BUILD_DATE=${{ needs.prepare.outputs.build_date }}
+
+  build-dashboard:
+    name: "[${{ matrix.env }}] Build dashboard"
+    if: needs.prepare.outputs.build_dashboard == 'true'
+    runs-on: ubuntu-latest
+    needs: prepare
+    strategy:
+      matrix:
+        env: ${{ fromJson(needs.prepare.outputs.environments) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          ref: ${{ github.event.inputs.ref }}
+          token: ${{ secrets.SUBMODULE_PAT }}
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - uses: docker/build-push-action@v5
+        with:
+          context: ./dashboard
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-dashboard:${{ matrix.env }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-dashboard:sha-${{ github.sha }}
+          cache-from: type=gha,scope=dashboard-${{ matrix.env }}
+          cache-to: type=gha,mode=max,scope=dashboard-${{ matrix.env }}
+          build-args: |
+            NEXT_PUBLIC_APP_VERSION=${{ needs.prepare.outputs.rc_version }}
+            NEXT_PUBLIC_BUILD_DATE=${{ needs.prepare.outputs.build_date }}
+
+  build-kds:
+    name: "[${{ matrix.env }}] Build kds"
+    if: needs.prepare.outputs.build_kds == 'true'
+    runs-on: ubuntu-latest
+    needs: prepare
+    strategy:
+      matrix:
+        env: ${{ fromJson(needs.prepare.outputs.environments) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          ref: ${{ github.event.inputs.ref }}
+          token: ${{ secrets.SUBMODULE_PAT }}
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - uses: docker/build-push-action@v5
+        with:
+          context: ./kds
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-kds:${{ matrix.env }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-kds:sha-${{ github.sha }}
+          cache-from: type=gha,scope=kds-${{ matrix.env }}
+          cache-to: type=gha,mode=max,scope=kds-${{ matrix.env }}
+          build-args: |
+            NEXT_PUBLIC_APP_VERSION=${{ needs.prepare.outputs.rc_version }}
+            NEXT_PUBLIC_BUILD_DATE=${{ needs.prepare.outputs.build_date }}
+
+  build-table-order:
+    name: "[${{ matrix.env }}] Build table-order"
+    if: needs.prepare.outputs.build_table_order == 'true'
+    runs-on: ubuntu-latest
+    needs: prepare
+    strategy:
+      matrix:
+        env: ${{ fromJson(needs.prepare.outputs.environments) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          ref: ${{ github.event.inputs.ref }}
+          token: ${{ secrets.SUBMODULE_PAT }}
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - uses: docker/build-push-action@v5
+        with:
+          context: ./table-order
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-table-order:${{ matrix.env }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-table-order:sha-${{ github.sha }}
+          cache-from: type=gha,scope=table-order-${{ matrix.env }}
+          cache-to: type=gha,mode=max,scope=table-order-${{ matrix.env }}
+          build-args: |
+            NEXT_PUBLIC_APP_VERSION=${{ needs.prepare.outputs.rc_version }}
+            NEXT_PUBLIC_BUILD_DATE=${{ needs.prepare.outputs.build_date }}
+
+  # ============================================
+  # 3. Backend Builds (nur ausgewählte)
+  # ============================================
+  build-core:
+    name: "[${{ matrix.env }}] Build core"
+    if: needs.prepare.outputs.build_core == 'true'
+    runs-on: ubuntu-latest
+    needs: prepare
+    strategy:
+      matrix:
+        env: ${{ fromJson(needs.prepare.outputs.environments) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          ref: ${{ github.event.inputs.ref }}
+          token: ${{ secrets.SUBMODULE_PAT }}
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          file: ./backend/services/core/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-core:${{ matrix.env }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-core:sha-${{ github.sha }}
+          cache-from: type=gha,scope=core-${{ matrix.env }}
+          cache-to: type=gha,mode=max,scope=core-${{ matrix.env }}
+
+  build-orders:
+    name: "[${{ matrix.env }}] Build orders"
+    if: needs.prepare.outputs.build_orders == 'true'
+    runs-on: ubuntu-latest
+    needs: prepare
+    strategy:
+      matrix:
+        env: ${{ fromJson(needs.prepare.outputs.environments) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          ref: ${{ github.event.inputs.ref }}
+          token: ${{ secrets.SUBMODULE_PAT }}
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          file: ./backend/services/orders/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-orders:${{ matrix.env }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-orders:sha-${{ github.sha }}
+          cache-from: type=gha,scope=orders-${{ matrix.env }}
+          cache-to: type=gha,mode=max,scope=orders-${{ matrix.env }}
+
+  build-ai:
+    name: "[${{ matrix.env }}] Build ai"
+    if: needs.prepare.outputs.build_ai == 'true'
+    runs-on: ubuntu-latest
+    needs: prepare
+    strategy:
+      matrix:
+        env: ${{ fromJson(needs.prepare.outputs.environments) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          ref: ${{ github.event.inputs.ref }}
+          token: ${{ secrets.SUBMODULE_PAT }}
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          file: ./backend/services/ai/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-ai:${{ matrix.env }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-ai:sha-${{ github.sha }}
+          cache-from: type=gha,scope=ai-${{ matrix.env }}
+          cache-to: type=gha,mode=max,scope=ai-${{ matrix.env }}
+
+  build-notifications:
+    name: "[${{ matrix.env }}] Build notifications"
+    if: needs.prepare.outputs.build_notifications == 'true'
+    runs-on: ubuntu-latest
+    needs: prepare
+    strategy:
+      matrix:
+        env: ${{ fromJson(needs.prepare.outputs.environments) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          ref: ${{ github.event.inputs.ref }}
+          token: ${{ secrets.SUBMODULE_PAT }}
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          file: ./backend/services/notifications/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-notifications:${{ matrix.env }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/gastropilot-notifications:sha-${{ github.sha }}
+          cache-from: type=gha,scope=notifications-${{ matrix.env }}
+          cache-to: type=gha,mode=max,scope=notifications-${{ matrix.env }}
+
+  # ============================================
+  # 4. Notification
+  # ============================================
+  notify:
+    name: Notify
+    runs-on: ubuntu-latest
+    needs: [prepare, build-web, build-dashboard, build-kds, build-table-order, build-core, build-orders, build-ai, build-notifications]
+    if: always()
+    steps:
+      - name: Notify Slack
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          DEPLOY_ENV: ${{ github.event.inputs.environment }}
+          DEPLOY_SERVICES: ${{ github.event.inputs.services }}
+          RC_VERSION: ${{ needs.prepare.outputs.rc_version }}
+          DEPLOY_REF: ${{ github.event.inputs.ref }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then
+            echo "SLACK_WEBHOOK_URL not set, skipping"
+            exit 0
+          fi
+
+          # Prüfe ob irgendein Build fehlgeschlagen ist
+          FAILED=false
+          for status in \
+            "${{ needs.build-web.result }}" \
+            "${{ needs.build-dashboard.result }}" \
+            "${{ needs.build-kds.result }}" \
+            "${{ needs.build-table-order.result }}" \
+            "${{ needs.build-core.result }}" \
+            "${{ needs.build-orders.result }}" \
+            "${{ needs.build-ai.result }}" \
+            "${{ needs.build-notifications.result }}"; do
+            if [ "$status" = "failure" ]; then
+              FAILED=true
+              break
+            fi
+          done
+
+          if [ "$FAILED" = "false" ]; then
+            EMOJI=":white_check_mark:"
+            STATUS="successful"
+          else
+            EMOJI=":x:"
+            STATUS="failed"
+          fi
+
+          curl -X POST -H 'Content-type: application/json' \
+            --data "{
+              \"blocks\": [
+                {
+                  \"type\": \"header\",
+                  \"text\": {
+                    \"type\": \"plain_text\",
+                    \"text\": \"${EMOJI} Deploy ${STATUS}: v${RC_VERSION}\"
+                  }
+                },
+                {
+                  \"type\": \"section\",
+                  \"fields\": [
+                    {\"type\": \"mrkdwn\", \"text\": \"*Environment:* ${DEPLOY_ENV}\"},
+                    {\"type\": \"mrkdwn\", \"text\": \"*Services:* ${DEPLOY_SERVICES}\"},
+                    {\"type\": \"mrkdwn\", \"text\": \"*Version:* v${RC_VERSION}\"},
+                    {\"type\": \"mrkdwn\", \"text\": \"*Actor:* ${{ github.actor }}\"}
+                  ]
+                },
+                {
+                  \"type\": \"context\",
+                  \"elements\": [
+                    {
+                      \"type\": \"mrkdwn\",
+                      \"text\": \"<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Workflow>\"
+                    }
+                  ]
+                }
+              ]
+            }" \
+            "$SLACK_WEBHOOK_URL"

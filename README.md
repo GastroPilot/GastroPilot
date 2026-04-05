@@ -7,7 +7,7 @@ GastroPilot is a modern, web-based restaurant management system for hospitality 
 
 ## Installation
 
-To set up an GastroPilot instance, please follow our [install instructions](INSTALL.md).
+To set up an GastroPilot instance, please follow our [install instructions](install/INSTALL.md).
 
 
 ## Development

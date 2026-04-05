@@ -1,5 +1,56 @@
 # Changelog
 
+## [0.14.2] - 2026-04-04
+
+### Changes
+- fix(ci): Deploy-Matrix baut alle Services statt nur einzelne (b2cfdf7)
+- update submodule (80483a9)
+- feat: Multi-Environment Deploy-Workflow, Testdaten und Versions-Timestamp (5d0ad3c)
+
+
+## [0.14.1] - 2026-04-04
+
+### Changes
+- update submodule (71ddb8b)
+- updated haupt repo (61a00a2)
+- updated submodules (b20152e)
+
+
+## [0.14.0] - 2026-03-18
+
+### Changes
+- Update VERSION (ac93784)
+- Remove version 0.14.0 entry from CHANGELOG (12128b5)
+- chore(release): 0.14.0 (78c17f9)
+- Update VERSION (90d2397)
+- Update CHANGELOG.md (f457303)
+- update submodule (8f6953e)
+- chore(release): 0.14.0 (b41b5c2)
+- refactor: replace guest-portal with dashboard in workflows and update submodule URLs (ef72d67)
+- added dashboard and web insted of frontend and guest portal (37ad54a)
+
+
+## [0.13.1] - 2026-03-18
+
+### Changes
+- updated workflows (07c3c9c)
+- version bump (d295041)
+- update submodule (dac1311)
+- removed upsell & voucher (dd1bffe)
+- Docker Dateien aufgeräumt. (e9adef2)
+- changed directories (2cd020a)
+- changed deploy (eed46a6)
+- update app submodule (34d9d5e)
+- chore: remove legacy deployment files and unused guest-app submodule (5fb0948)
+- updated submodule (5db8318)
+- fix sql.init.sql conflicts (839e002)
+- fixed nginx startup and alembic migrations (82e67f5)
+- init demo and more (b5ed950)
+- added jwt variables for orders service (5be2d8e)
+- added alembic db update to pipeline (0546fdb)
+- feat: add guest-portal, kds, table-order, guest-app as submodules with CI/CD (f31503d)
+
+
 ## [0.13.0] - 2026-03-02
 
 ### Changes

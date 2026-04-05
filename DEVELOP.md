@@ -23,27 +23,39 @@ GastroPilot ist ein **Monorepo mit Git Submodules**:
 
 ```
 GastroPilot/
-├── .github/workflows/       # CI/CD Pipelines
-├── .github/ISSUE_TEMPLATE/  # Issue-Vorlagen für GitHub
-├── gastropilot-backend/     # FastAPI Backend (Submodule)
-├── gastropilot-frontend/    # Next.js Frontend (Submodule)
-├── gastropilot-app/         # Expo React Native App (Submodule)
-├── docker-compose.yml       # Staging-Umgebung
-├── VERSION                  # Aktuelle Version (semver)
-├── AUTHORS                  # Projektautoren
-├── LICENSE                  # Lizenzinformationen
-├── SECURITY.md              # Sicherheitsrichtlinien
-├── README.md                # Projektübersicht
-└── CHANGELOG.md             # Release-Historie
+├── .github/workflows/   # CI/CD Pipelines
+├── .github/ISSUE_TEMPLATE/
+├── backend/             # FastAPI Backend Microservices (Submodule)
+├── web/                 # Next.js Dashboard (Submodule)
+├── restaurant-app/      # Expo React Native App (Submodule)
+├── guest-portal/        # Guest Web Portal (Submodule)
+├── kds/                 # Kitchen Display System (Submodule)
+├── table-order/         # QR Table Ordering PWA (Submodule)
+├── infra/
+│   ├── demo/            # Demo-Environment Reset & Seeds
+│   └── sql/             # DB-Initialisierung & Migrations
+├── dev/                     # Entwicklungsumgebung (Docker Compose, nginx, .env)
+│   ├── docker-compose.yml
+│   ├── .env.example
+│   └── nginx/
+├── VERSION              # Aktuelle Version (semver)
+├── AUTHORS.md           # Projektautoren
+├── LICENSE              # Lizenzinformationen
+├── SECURITY.md          # Sicherheitsrichtlinien
+├── README.md            # Projektübersicht
+└── CHANGELOG.md         # Release-Historie
 ```
 
 ### Submodule-Repositories
 
 | Submodule | Repository |
 |-----------|------------|
-| Backend | `https://github.com/GastroPilot/gastropilot-backend.git` |
-| Frontend | `https://github.com/GastroPilot/gastropilot-frontend.git` |
-| App | `https://github.com/GastroPilot/gastropilot-app.git` |
+| Backend | `https://github.com/GastroPilot/backend.git` |
+| Frontend | `https://github.com/GastroPilot/web.git` |
+| App | `https://github.com/GastroPilot/restaurant-app.git` |
+| Guest Portal | `https://github.com/GastroPilot/gastropilot-guest-portal.git` |
+| KDS | `https://github.com/GastroPilot/gastropilot-kds.git` |
+| Table Order | `https://github.com/GastroPilot/gastropilot-table-order.git` |
 
 ---
 
@@ -111,7 +123,7 @@ git submodule update --init --recursive
 ### 2. Backend einrichten
 
 ```bash
-cd gastropilot-backend
+cd backend
 
 # Virtuelle Umgebung erstellen
 python -m venv venv
@@ -121,29 +133,64 @@ source venv/bin/activate  # macOS/Linux
 # Dependencies installieren
 pip install -r requirements.txt
 
-# Umgebungsvariablen kopieren
-cp .env.example .env
-# .env anpassen (DATABASE_URL, JWT_SECRET, etc.)
-
-# Server starten (mit SQLite für lokale Entwicklung)
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+# Service-Umgebungsvariablen anlegen
+cp services/core/.env.example services/core/.env
+cp services/orders/.env.example services/orders/.env
 ```
 
-**Wichtige Umgebungsvariablen (.env):**
+**Wichtige Umgebungsvariablen (services/core/.env):**
 
 ```bash
 ENV=development
-DATABASE_URL=sqlite+aiosqlite:///./reservation_dev.db
+DATABASE_URL=postgresql+asyncpg://gastropilot_app:gastropilot_app_password@localhost:5432/gastropilot
+DATABASE_ADMIN_URL=postgresql+asyncpg://gastropilot_admin:gastropilot_admin_password@localhost:5432/gastropilot
 JWT_SECRET=<generiere-einen-sicheren-schlüssel>
-SECRET_KEY=<generiere-einen-sicheren-schlüssel>
 CORS_ORIGINS=http://localhost:3000,http://localhost:3001
-LOG_LEVEL=DEBUG
+# Optional lokal ohne Redis:
+REDIS_URL=
+```
+
+**Wichtige Umgebungsvariablen (services/orders/.env):**
+
+```bash
+ENV=development
+DATABASE_URL=postgresql+asyncpg://gastropilot_app:gastropilot_app_password@localhost:5432/gastropilot
+DATABASE_ADMIN_URL=postgresql+asyncpg://gastropilot_admin:gastropilot_admin_password@localhost:5432/gastropilot
+JWT_SECRET=<derselbe JWT_SECRET wie im core-service>
+CORS_ORIGINS=http://localhost:3000,http://localhost:3001
+REDIS_URL=redis://localhost:6379/0
+```
+
+**Startvarianten (lokal):**
+
+```bash
+# A) Nur Core (Auth/Tenant/Reservierungen etc., NICHT vollständige App-Funktion)
+cd backend/services/core
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+```bash
+# B) Core + Orders (zwei Terminals)
+# Terminal 1
+cd backend/services/core
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+# Terminal 2
+cd backend/services/orders
+uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
+```
+
+```bash
+# C) Empfohlen für vollständige lokale Entwicklung:
+# nginx + core + orders + db + redis (+ optional ai/notifications)
+cd GastroPilot
+docker compose -f dev/docker-compose.yml up -d
 ```
 
 ### 3. Frontend einrichten
 
 ```bash
-cd gastropilot-frontend
+cd web
 
 # Dependencies installieren
 npm install
@@ -159,13 +206,22 @@ npm run dev
 **Wichtige Umgebungsvariablen (.env.local):**
 
 ```bash
-NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+# Empfohlen (nginx-Gateway aus dev/docker-compose.yml)
+NEXT_PUBLIC_API_BASE_URL=http://localhost:80
+NEXT_PUBLIC_API_PREFIX=api/v1
+
+# Alternative nur für Core-Debugging:
+# NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+# NEXT_PUBLIC_API_PREFIX=v1
+#
+# Achtung: Mit "nur Core" sind nicht alle Frontend-Features verfügbar
+# (z.B. Orders/Kitchen und aktuell fehlende Table-CRUD-Endpunkte im core-service).
 ```
 
 ### 4. Mobile App einrichten
 
 ```bash
-cd gastropilot-app
+cd restaurant-app
 
 # Dependencies installieren
 npm install
@@ -181,10 +237,11 @@ npx expo start
 **Wichtige Umgebungsvariablen (.env):**
 
 ```bash
-EXPO_PUBLIC_API_URL=http://localhost:8000
+EXPO_PUBLIC_API_URL=http://localhost:8000/v1
 ```
 
 **Hinweise:**
+- Beim ersten Start fragt die App nach dem Restaurant-Kürzel (`tenant_slug`, z.B. `mein-restaurant`)
 - Für NFC-Login wird ein echtes Gerät mit NFC benötigt
 - NFC funktioniert nicht in Expo Go oder im Web
 
@@ -195,28 +252,29 @@ EXPO_PUBLIC_API_URL=http://localhost:8000
 Die einfachste Methode - startet alle Services zusammen mit Hot-Reload:
 
 ```bash
-# Im Root-Verzeichnis
 # 1. Umgebungsvariablen kopieren
-cp .env.dev.example .env.dev
+cp dev/.env.example dev/.env
 
-# 2. Optional: .env.dev anpassen (Ports, Secrets, etc.)
+# 2. Optional: dev/.env anpassen (Ports, Secrets, etc.)
 
 # 3. Services starten
-docker compose -f docker-compose.dev.yml up
+docker compose -f dev/docker-compose.yml up
 
 # Oder im Hintergrund:
-docker compose -f docker-compose.dev.yml up -d
+docker compose -f dev/docker-compose.yml up -d
 
 # Logs anzeigen
-docker compose -f docker-compose.dev.yml logs -f
+docker compose -f dev/docker-compose.yml logs -f
 
 # Services stoppen
-docker compose -f docker-compose.dev.yml down
+docker compose -f dev/docker-compose.yml down
 ```
 
 **Verfügbare Services:**
-- **Backend:** http://localhost:8000
-- **Frontend:** http://localhost:3000
+- **Gateway (nginx):** http://localhost:80
+- **Frontend:** http://localhost:3001
+- **API über Gateway:** http://localhost:80/api/v1
+- **Orders/Kitchen über Gateway:** http://localhost:80/api/v1/orders, http://localhost:80/api/v1/kitchen
 - **Database:** localhost:5432 (PostgreSQL)
 
 **Features:**
@@ -225,27 +283,23 @@ docker compose -f docker-compose.dev.yml down
 - ✅ PostgreSQL mit persistent storage
 - ✅ Gemeinsames Docker-Netzwerk
 - ✅ Health-Checks für alle Services
-- ✅ Automatisches Anlegen eines Standard-Servecta-Benutzers
 
-**Standard-Login (Development):**
-
-Beim ersten Start wird automatisch ein Servecta-Administrator angelegt:
-- **Bedienernummer:** `0000`
-- **PIN:** `000000`
-- **Rolle:** `servecta` (höchste Berechtigung)
-
-> **Hinweis:** Dieser Benutzer wird nur in der Development- und Test-Umgebung automatisch angelegt.
+**Hinweis:** Im Microservice-Stack ist Auth im `core`-Service. Für PIN-Login ist dort `tenant_slug` erforderlich.
 
 #### Option B: Einzelne Services
 
 Für mehr Kontrolle können Services auch einzeln gestartet werden:
 
 ```bash
-# Nur Backend + Database
-cd gastropilot-backend && docker compose up -d
+# Aus dem Root-Verzeichnis:
+# API-Basis für fast alle Flows: Core + Orders + DB + Redis + Gateway
+docker compose -f dev/docker-compose.yml up -d postgres redis core orders nginx
 
-# Nur Frontend
-cd gastropilot-frontend && docker compose up -d
+# Frontend zusätzlich
+docker compose -f dev/docker-compose.yml up -d frontend
+
+# Optional bei Bedarf
+docker compose -f dev/docker-compose.yml up -d ai notifications notifications-worker
 ```
 
 ---
@@ -259,15 +313,18 @@ cd gastropilot-frontend && docker compose up -d
 git submodule update --remote --merge
 
 # Oder nur ein spezifisches Submodule
-git submodule update --remote gastropilot-backend
-git submodule update --remote gastropilot-frontend
-git submodule update --remote gastropilot-app
+git submodule update --remote backend
+git submodule update --remote web
+git submodule update --remote restaurant-app
+git submodule update --remote gastropilot-guest-portal
+git submodule update --remote gastropilot-kds
+git submodule update --remote gastropilot-table-order
 ```
 
 ### In einem Submodule arbeiten (Feature)
 
 ```bash
-cd gastropilot-backend
+cd backend
 
 # Eigenen Branch erstellen
 git checkout -b feature/mein-feature
@@ -282,7 +339,7 @@ git push origin feature/mein-feature
 ### In einem Submodule arbeiten (Bugfix)
 
 ```bash
-cd gastropilot-backend
+cd backend
 
 # Eigenen Branch erstellen
 git checkout -b fix/mein-bugfix
@@ -301,12 +358,12 @@ Nach dem Merge eines PR im Submodule:
 
 ```bash
 # Im Root-Verzeichnis
-cd gastropilot-backend
+cd backend
 git checkout main
 git pull
 
 cd ..
-git add gastropilot-backend
+git add backend
 git commit -m "chore: update backend submodule"
 git push
 ```
@@ -365,7 +422,7 @@ git commit -m "docs: update API documentation"
 ### Backend
 
 ```bash
-cd gastropilot-backend
+cd backend
 
 # Linting
 ruff check .
@@ -382,7 +439,7 @@ isort .
 ### Frontend
 
 ```bash
-cd gastropilot-frontend
+cd web
 
 # Linting
 npm run lint
@@ -404,7 +461,7 @@ npm run type-check
 ### Backend Tests
 
 ```bash
-cd gastropilot-backend
+cd backend
 
 # Alle Tests ausführen
 pytest
@@ -419,7 +476,7 @@ pytest tests/test_reservations.py -v
 ### Frontend Tests
 
 ```bash
-cd gastropilot-frontend
+cd web
 
 # Unit/Integration Tests
 npm run test
@@ -437,146 +494,215 @@ npm run test:watch
 
 ### Umgebungen
 
-| Umgebung | Frontend | Backend | Datenbank | URL |
-|----------|----------|---------|-----------|-----|
-| Test | :3004 | :8004 | :5433 | test.gpilot.app |
-| Staging | :3003 | :8003 | :5433 | staging.gpilot.app |
-| Demo | :3002 | :8002 | :5432 | demo.gpilot.app |
-| Production | :3001 | :8001 | :5432 | gpilot.app |
+| Umgebung | URL | Deployment | Server |
+|----------|-----|------------|--------|
+| Development | localhost | `dev/docker-compose.yml` (lokal) | Lokal |
+| Test | test.gpilot.app | Submodule CI / Deploy-Workflow | APP-02 (10.0.3.1) |
+| Staging | staging.gpilot.app | Deploy-Workflow | APP-02 (10.0.3.1) |
+| Demo | demo.gpilot.app | Deploy-Workflow | APP-02 (10.0.3.1) |
+| Production | gpilot.app | Release-Workflow | APP-01 (10.0.1.1) |
 
-### Automatisches Deployment (CI/CD)
+### CI/CD Workflows
+
+#### Submodule CI/CD (automatisch)
+
+Jedes Submodule hat einen eigenen CI/CD-Workflow (`ci-cd.yml`). Bei Push auf `main` werden Docker Images automatisch mit dem Tag `:test` gebaut. Die Version wird aus `package.json` gelesen.
 
 ```
-Push auf main
-    ↓
+Push auf main (Submodule)
+    |
 GitHub Actions: ci-cd.yml
-    ├── Backend bauen → Push zu ghcr.io
-    ├── Frontend bauen → Push zu ghcr.io
-    └── Deploy auf Staging
-        └── Health Checks
-            └── Slack Notification
+    +-- Lint & Build Check
+    +-- Docker Build & Push -> :test Tag
+        +-- Server: docker compose pull && ./update.sh
 ```
 
-**Test:** Automatisch bei jedem Push mit `fix` oder `feat`-Präfix im Commit
+#### Deploy Workflow (Test, Staging, Demo)
 
-**Staging:** Automatisch bei jedem Push auf `main`
+Der zentrale **Deploy**-Workflow im Haupt-Repo erstellt automatisch RC-Versionen:
 
-**Demo/Production:** Manuell via GitHub Actions:
+1. **Actions** > **Deploy** > **Run workflow**
+2. Wähle:
+   - **Environment:** `test`, `staging`, `demo` oder `all`
+   - **Services:** `all`, `frontend`, `backend` oder einzelner Service (z.B. `dashboard`)
+   - **Ref:** Branch oder Tag (z.B. `main`)
+   - **Version Bump:** `auto` (nächste RC-Nummer) oder `patch`/`minor`/`major` (neuer Zyklus)
 
-1. Gehe zu **Actions** → **CI/CD Pipeline**
-2. Klicke auf **Run workflow**
-3. Wähle `demo` oder `production`
-4. Klicke auf **Run workflow**
+**Beispiel: Nur Dashboard auf Test deployen:**
+- Environment: `test`, Services: `dashboard`, Bump: `auto`
+- Erstellt: `v0.14.3-rc.1-dashboard`, baut nur das Dashboard-Image
+
+**Beispiel: Alles auf Staging deployen:**
+- Environment: `staging`, Services: `all`, Bump: `auto`
+- Erstellt: `v0.14.3-rc.2`, baut alle 8 Services
+
+#### Release Workflow (Production)
+
+1. **Actions** > **Release** > **Run workflow**
+2. Wähle:
+   - **`promote`** - Aktuelle RC zur Production machen (z.B. `0.14.3-rc.4` -> `0.14.3`)
+   - **`patch`/`minor`/`major`** - Direkter Release (Hotfix ohne RC-Zyklus)
+3. Optional: "Deploy to production" aktivieren
+
+Images werden mit `:v{version}`, `:latest` und `:production` getaggt.
+
+### Docker Image Tags
+
+| Environment | Image Tag | Trigger | Version-Beispiel |
+|-------------|-----------|---------|-----------------|
+| Test | `:test` | Submodule CI oder Deploy-Workflow | `v0.14.3-rc.1-dashboard` |
+| Staging | `:staging` | Deploy-Workflow | `v0.14.3-rc.2` |
+| Demo | `:demo` | Deploy-Workflow | `v0.14.3-rc.2` |
+| Production | `:v0.14.3`, `:latest`, `:production` | Release-Workflow | `v0.14.3` |
 
 ### Manuelles Deployment
 
 ```bash
-# SSH auf Server
-ssh user@server
+# SSH auf Server (via WireGuard + INFRA-SRV Jump-Host)
+ssh app-02      # Test/Staging/Demo
+ssh app-01      # Production
 
-# Zum Umgebungsverzeichnis wechseln
-cd /opt/gastropilot/staging  # oder test/demo/production
+# Zum Environment-Verzeichnis wechseln
+cd /opt/test    # oder /opt/staging, /opt/demo, /opt/production
 
-# Images pullen und neu starten
+# Update (Pull + Migration + Restart)
+./update.sh
+
+# Oder manuell:
 docker compose pull
 docker compose up -d
-
-# Health Check
-curl http://localhost:8003/v1/health
+docker compose exec core alembic -c alembic.ini upgrade head
 ```
 
-### Server-Struktur
+### Server-Architektur
 
 ```
-/opt/gastropilot/
-├── test/
-│   ├── docker-compose.yml
-│   └── .env
-├── staging/
-│   ├── docker-compose.yml
-│   └── .env
-├── demo/
-│   ├── docker-compose.yml
-│   └── .env
-└── production/
-    ├── docker-compose.yml
-    └── .env
+APP-01 (10.0.1.1) - Production
+  /opt/production/
+
+APP-02 (10.0.3.1) - Non-Production
+  /opt/test/        <- gastropilot-test-*
+  /opt/staging/     <- gastropilot-staging-*
+  /opt/demo/        <- gastropilot-demo-*
+
+DB-01  (10.0.2.1) - PostgreSQL Primary + Redis
+DB-02  (10.0.2.2) - PostgreSQL Replica
+INFRA  (10.0.0.2) - WireGuard, CoreDNS, Monitoring
 ```
+
+### Hilfs-Skripte (pro Environment)
+
+| Skript | Funktion |
+|--------|----------|
+| `./update.sh` | Images pullen, DB-Migration, Container neustarten |
+| `./maintenance.sh on\|off` | Wartungsmodus ein-/ausschalten |
+| `./coming-soon.sh on\|off` | Coming-Soon-Seite ein-/ausschalten |
 
 ---
 
 ## Versioning & Releases
 
-### Semantic Versioning
+### Versionierungsmodell
 
-Wir verwenden [Semantic Versioning](https://semver.org/) (SemVer):
+GastroPilot nutzt **Semantic Versioning** mit **Release Candidates** (RC):
 
 ```
-MAJOR.MINOR.PATCH
-  │     │     └── Bugfixes, kleine Änderungen
-  │     └──────── Neue Features (abwärtskompatibel)
-  └────────────── Breaking Changes
+v{MAJOR}.{MINOR}.{PATCH}[-rc.{N}[-{service}]]
 ```
 
-**Aktuelle Version:** Siehe `VERSION` Datei im Root
+| Beispiel | Bedeutung |
+|----------|-----------|
+| `v0.14.2` | Stabile Production-Version |
+| `v0.14.3-rc.1` | Plattform-RC (alle Services, auf Test/Staging) |
+| `v0.14.3-rc.3-dashboard` | Service-RC (nur Dashboard, auf Test) |
+| `v0.15.0-rc.1` | Erster RC fuer naechstes Minor-Release |
+
+### Typischer Release-Zyklus
+
+```
+Tag        Aktion                              VERSION            Git-Tag
+---------- ----------------------------------- ------------------ ----------------------
+Mo 06.04   Dashboard-Fix -> Deploy auf Test    (unv.)             v0.14.3-rc.1-dashboard
+Di 07.04   Core-Bugfix -> Deploy auf Test      (unv.)             v0.14.3-rc.1-core
+Mi 08.04   Alles auf Staging deployen          0.14.3-rc.1        v0.14.3-rc.1
+Do 09.04   Noch ein Fix -> Staging             0.14.3-rc.2        v0.14.3-rc.2
+Fr 10.04   Promote -> Production               0.14.3             v0.14.3
+Mo 13.04   Neues Feature -> Deploy auf Test    (unv.)             v0.14.4-rc.1-web
+```
+
+### Versionsanzeige im Frontend
+
+Alle 4 Frontends (Web, Dashboard, KDS, Table-Order) zeigen die Version im Footer:
+
+```
+Test:       v0.14.3-rc.2-test (20260405-143025)
+Staging:    v0.14.3-rc.3-staging (20260409-091500)
+Production: v0.14.3-prod (20260410-120000)
+```
+
+### Versions-Skripte
+
+| Skript | Funktion |
+|--------|----------|
+| `scripts/bump-rc.sh [bump] [service]` | Berechnet naechste RC-Version aus Git-Tags |
+| `scripts/version.sh <component> [env]` | Gibt aktuelle Version fuer eine Komponente aus |
+
+```bash
+# Beispiele
+./scripts/bump-rc.sh                     # 0.14.3-rc.1     (Plattform)
+./scripts/bump-rc.sh auto dashboard      # 0.14.3-rc.1-dashboard (Service)
+./scripts/bump-rc.sh minor               # 0.15.0-rc.1     (neuer Minor-Zyklus)
+
+./scripts/version.sh web production      # v0.14.2          (aus package.json)
+./scripts/version.sh core test           # v0.14.3-rc.2     (aus VERSION, falls RC)
+```
 
 ### Release erstellen
 
-Releases werden über GitHub Actions erstellt:
+#### A) RC auf Test/Staging deployen
 
-1. Gehe zu **Actions** → **Release**
-2. Klicke auf **Run workflow**
-3. Wähle den Bump-Type:
-   - `patch` (0.9.1 → 0.9.2) - Bugfixes
-   - `minor` (0.9.1 → 0.10.0) - Neue Features
-   - `major` (0.9.1 → 1.0.0) - Breaking Changes
-4. Optional: "Deploy to production" aktivieren
-5. Klicke auf **Run workflow**
+1. **Actions** > **Deploy**
+2. Environment: `test` oder `staging`
+3. Services: `all` oder einzelner Service
+4. Version Bump: `auto`
 
-**Was passiert beim Release:**
+-> Erstellt automatisch die naechste RC-Version und taggt sie.
 
-1. VERSION-Datei wird aktualisiert
-2. CHANGELOG.md wird generiert
-3. Git-Tag wird erstellt (z.B. `v0.9.2`)
-4. GitHub Release wird erstellt
-5. Docker Images werden getaggt (`v0.9.2`, `latest`)
-6. Optional: Automatisches Production Deployment
+#### B) RC zur Production promoten
 
-### CHANGELOG
+1. **Actions** > **Release**
+2. Release-Typ: **`promote`**
+3. Deploy to Production: `true`
 
-Der Changelog wird automatisch aus Commits generiert. Format:
+-> Entfernt den RC-Suffix (z.B. `0.14.3-rc.4` -> `0.14.3`) und baut alle Images.
 
-```markdown
-## [0.9.2] - 2026-01-30
+#### C) Hotfix (direkt ohne RC)
 
-### Added
-- feat: neue Funktion XY
+1. **Actions** > **Release**
+2. Release-Typ: **`patch`**
+3. Deploy to Production: `true`
 
-### Fixed
-- fix: Problem mit AB behoben
+-> Erstellt direkt einen neuen Patch-Release ohne vorherigen RC-Zyklus.
 
-### Changed
-- refactor: Code-Verbesserungen
-```
+### VERSION-Datei
+
+Die `VERSION`-Datei im Root-Verzeichnis enthaelt die aktuelle Version:
+
+- **Stabile Version:** `0.14.2` (Production)
+- **RC-Version:** `0.14.3-rc.2` (waehrend eines RC-Zyklus)
+
+Die VERSION-Datei wird automatisch durch die Workflows aktualisiert.
 
 ---
 
 ## Milestones
 
-Wir verwenden **GitHub Milestones** zur Planung und Verfolgung von Releases. Jeder Milestone repräsentiert eine geplante Version.
-
-### Geplante Milestones
-
-| Milestone | Ziel | Fokus |
-|-----------|------|-------|
-| **v0.9.2** | Bugfixes & Stabilität | Behebung bekannter Fehler, Performance-Optimierungen |
-| **v0.10.0** | Feature-Erweiterungen | Neue Funktionen basierend auf Kundenfeedback |
-| **v1.0.0** | Stable Release | Produktionsreife, vollständige Dokumentation, API-Stabilität |
+Wir verwenden **GitHub Milestones** zur Planung und Verfolgung von Releases. Jeder Milestone repraesentiert eine geplante Version.
 
 ### Milestone-Workflow
 
-1. **Milestone erstellen** (GitHub → Issues → Milestones → New milestone)
-   - Name: Version (z.B. `v0.9.2`)
+1. **Milestone erstellen** (GitHub > Issues > Milestones > New milestone)
+   - Name: Version (z.B. `v0.15.0`)
    - Beschreibung: Ziele und Fokus des Releases
    - Due Date: Geplantes Release-Datum (optional)
 
@@ -586,53 +712,25 @@ Wir verwenden **GitHub Milestones** zur Planung und Verfolgung von Releases. Jed
 
 3. **Fortschritt verfolgen**
    - GitHub zeigt automatisch den Fortschritt (offene vs. geschlossene Issues)
-   - Regelmäßige Review-Meetings zum Milestone-Status
 
-4. **Release auslösen**
+4. **Release ausloesen**
    - Wenn alle Issues eines Milestones geschlossen sind
-   - Release-Workflow starten (siehe [Release erstellen](#release-erstellen))
-   - Milestone schließen
+   - RC auf Test/Staging deployen und testen
+   - Release-Workflow mit "promote" starten
+   - Milestone schliessen
 
-### Issues mit Milestones verknüpfen
-
-**Via GitHub CLI:**
+### Issues mit Milestones verknuepfen
 
 ```bash
 # Issue mit Milestone erstellen
-gh issue create --title "Bug: Login fehlerhaft" --milestone "v0.9.2"
+gh issue create --title "Bug: Login fehlerhaft" --milestone "v0.15.0"
 
 # Bestehendes Issue zuweisen
-gh issue edit 123 --milestone "v0.9.2"
+gh issue edit 123 --milestone "v0.15.0"
 
 # PR mit Milestone erstellen
-gh pr create --title "fix: Login-Bug beheben" --milestone "v0.9.2"
+gh pr create --title "fix: Login-Bug beheben" --milestone "v0.15.0"
 ```
-
-### Milestone-Kategorien
-
-**v0.9.x (Patch Releases):**
-- Kritische Bugfixes
-- Sicherheitsupdates
-- Kleine Verbesserungen
-- Keine neuen Features
-
-**v0.10.0+ (Minor Releases):**
-- Neue Features
-- UI/UX-Verbesserungen
-- API-Erweiterungen (abwärtskompatibel)
-
-**v1.0.0 (Major Release):**
-- Stabile, produktionsreife Version
-- Vollständige API-Dokumentation
-- Breaking Changes (falls nötig)
-- Langzeit-Support (LTS)
-
-### Best Practices
-
-- **Scope begrenzen:** Nicht zu viele Issues pro Milestone
-- **Priorisieren:** Must-have vs. Nice-to-have klar trennen
-- **Flexibel bleiben:** Issues bei Bedarf in späteren Milestone verschieben
-- **Kommunizieren:** Team über Milestone-Änderungen informieren
 
 ---
 
@@ -649,76 +747,35 @@ git submodule update --remote --merge
 
 ```bash
 # Komplette Dev-Umgebung starten
-docker compose -f docker-compose.dev.yml up -d
+docker compose -f dev/docker-compose.yml up -d
 
-# Services neu bauen
-docker compose -f docker-compose.dev.yml build
+# Logs anzeigen
+docker compose -f dev/docker-compose.yml logs -f
 
-# Logs anzeigen (alle Services)
-docker compose -f docker-compose.dev.yml logs -f
-
-# Logs für einzelnen Service
-docker compose -f docker-compose.dev.yml logs -f backend
-docker compose -f docker-compose.dev.yml logs -f frontend
-docker compose -f docker-compose.dev.yml logs -f db
-
-# In Container einloggen
-docker compose -f docker-compose.dev.yml exec backend bash
-docker compose -f docker-compose.dev.yml exec frontend sh
-docker compose -f docker-compose.dev.yml exec db psql -U postgres -d gastropilot_dev
+# Logs fuer einzelnen Service
+docker compose -f dev/docker-compose.yml logs -f core
 
 # Services stoppen
-docker compose -f docker-compose.dev.yml down
+docker compose -f dev/docker-compose.yml down
 
-# Services stoppen und Volumes löschen (Datenbank wird zurückgesetzt!)
-docker compose -f docker-compose.dev.yml down -v
-
-# Service neu starten
-docker compose -f docker-compose.dev.yml restart backend
-```
-
-### Einzelne Services (Alternative)
-
-```bash
-# Backend + Database
-cd gastropilot-backend
-docker compose logs -f backend
-docker compose exec backend bash
-
-# Frontend
-cd gastropilot-frontend
-docker compose logs -f frontend
-docker compose exec frontend sh
+# Services stoppen + Datenbank zuruecksetzen
+docker compose -f dev/docker-compose.yml down -v
 ```
 
 ### Datenbank
 
 ```bash
-# Datenbank-Migration (Backend)
-# Migrations werden automatisch beim Start ausgeführt
+# Migration
+docker compose -f dev/docker-compose.yml exec core alembic upgrade head
 
-# PostgreSQL CLI (wenn mit docker-compose.dev.yml gestartet)
-docker compose -f docker-compose.dev.yml exec db psql -U postgres -d gastropilot_dev
-
-# Datenbank zurücksetzen
-docker compose -f docker-compose.dev.yml down -v
-docker compose -f docker-compose.dev.yml up -d
-```
-
-### Dependencies
-
-```bash
-# Dependency Updates prüfen
-cd gastropilot-backend && pip list --outdated
-cd gastropilot-frontend && npm outdated
-cd gastropilot-app && npm outdated
+# PostgreSQL CLI
+docker compose -f dev/docker-compose.yml exec postgres psql -U gastropilot -d gastropilot
 ```
 
 ### Mobile App
 
 ```bash
-# Mobile App starten
-cd gastropilot-app && npx expo start
+cd restaurant-app && npx expo start
 ```
 
 ---
@@ -728,7 +785,6 @@ cd gastropilot-app && npx expo start
 ### Submodule-Probleme
 
 ```bash
-# Submodules zurücksetzen
 git submodule deinit -f .
 git submodule update --init --recursive
 ```
@@ -736,28 +792,15 @@ git submodule update --init --recursive
 ### Docker-Probleme
 
 ```bash
-# Development Environment: Alle Container stoppen und entfernen
-docker compose -f docker-compose.dev.yml down -v
-
-# Images neu bauen
-docker compose -f docker-compose.dev.yml build --no-cache
-
-# Neu starten
-docker compose -f docker-compose.dev.yml up -d
-
-# Einzelne Services (Backend/Frontend):
-cd gastropilot-backend  # oder gastropilot-frontend
-docker compose down -v
-docker compose build --no-cache
-docker compose up -d
+docker compose -f dev/docker-compose.yml down -v
+docker compose -f dev/docker-compose.yml build --no-cache
+docker compose -f dev/docker-compose.yml up -d
 ```
 
 ### Port bereits belegt
 
 ```bash
-# Prozess auf Port finden (macOS/Linux)
 lsof -i :8000
-# Prozess beenden
 kill -9 <PID>
 ```
 
@@ -767,8 +810,8 @@ kill -9 <PID>
 
 - **GitHub Issues:** Bugs und Feature Requests
 - **Slack:** Team-Kommunikation
-- **SECURITY.md:** Sicherheitslücken melden
+- **SECURITY.md:** Sicherheitsluecken melden
 
 ---
 
-*Letzte Aktualisierung: Januar 2026*
+*Letzte Aktualisierung: April 2026*
