@@ -417,6 +417,16 @@ CREATE INDEX IF NOT EXISTS idx_orders_tenant_id ON orders(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
 CREATE INDEX IF NOT EXISTS idx_orders_opened_at ON orders(opened_at);
 CREATE INDEX IF NOT EXISTS idx_orders_table_id ON orders(table_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_orders_active_reservation
+ON orders(tenant_id, reservation_id)
+WHERE reservation_id IS NOT NULL
+  AND status NOT IN ('paid', 'canceled')
+  AND payment_status <> 'paid';
+CREATE UNIQUE INDEX IF NOT EXISTS uq_orders_active_table
+ON orders(tenant_id, table_id)
+WHERE table_id IS NOT NULL
+  AND status NOT IN ('paid', 'canceled')
+  AND payment_status <> 'paid';
 
 CREATE TABLE IF NOT EXISTS order_items (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
