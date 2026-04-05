@@ -2,20 +2,27 @@
 # =============================================================================
 # GastroPilot Version Generator
 # =============================================================================
-# Generiert Versionsstrings im Format:
-#   vmajor.minor.patch-YYYYMMDD-HHmmss-environment   (non-production)
-#   vmajor.minor.patch-YYYYMMDD-HHmmss-prod          (production)
+# Generiert Versionsstrings für Builds und Deployments.
 #
 # Usage:
 #   ./scripts/version.sh <component> [environment]
 #
 # Komponenten: web, dashboard, kds, table-order, core, orders, ai, notifications
-# Environments: staging, demo, development, production (default: development)
+# Environments: test, staging, demo, development, production (default: development)
+#
+# Die Version wird aus der VERSION-Datei im Root gelesen.
+# Falls diese eine RC enthält (z.B. 0.14.3-rc.2), wird diese genutzt.
+# Falls nicht (z.B. 0.14.2), wird die package.json/pyproject.toml Version genutzt.
 #
 # Beispiele:
-#   ./scripts/version.sh web staging        → v0.14.0-20260320-143025-staging
-#   ./scripts/version.sh core production    → v2.0.0-20260320-143025-prod
-#   ./scripts/version.sh kds               → v0.1.0-20260320-143025-development
+#   VERSION=0.14.3-rc.2:
+#     ./scripts/version.sh web test         → v0.14.3-rc.2
+#     ./scripts/version.sh core production  → v0.14.3-rc.2
+#
+#   VERSION=0.14.2 (stabile Version):
+#     ./scripts/version.sh web production   → v0.14.2
+#     ./scripts/version.sh web test         → v0.14.2
+#     ./scripts/version.sh core production  → v2.0.0
 # =============================================================================
 
 set -euo pipefail
@@ -36,10 +43,29 @@ if [ -z "$COMPONENT" ]; then
   echo "  Frontend: web, dashboard, kds, table-order" >&2
   echo "  Backend:  core, orders, ai, notifications" >&2
   echo "" >&2
-  echo "Environments: staging, demo, development, production" >&2
+  echo "Environments: test, staging, demo, development, production" >&2
   exit 1
 fi
 
+# -------------------------------------------
+# Root-VERSION lesen (kann RC enthalten)
+# -------------------------------------------
+ROOT_VERSION=""
+if [ -f "$ROOT_DIR/VERSION" ]; then
+    ROOT_VERSION=$(cat "$ROOT_DIR/VERSION" | tr -d '[:space:]')
+fi
+
+# -------------------------------------------
+# Falls ROOT_VERSION eine RC ist, diese direkt nutzen
+# -------------------------------------------
+if [[ "$ROOT_VERSION" =~ -rc\.[0-9]+$ ]]; then
+    echo "v${ROOT_VERSION}"
+    exit 0
+fi
+
+# -------------------------------------------
+# Sonst: Komponentenversion aus package.json / pyproject.toml
+# -------------------------------------------
 get_frontend_version() {
   local dir="$1"
   local pkg="$ROOT_DIR/$dir/package.json"
@@ -75,10 +101,4 @@ case "$COMPONENT" in
     ;;
 esac
 
-if [ "$ENVIRONMENT" = "production" ]; then
-  FULL_VERSION="v${BASE_VERSION}-${BUILD_TIMESTAMP}-prod"
-else
-  FULL_VERSION="v${BASE_VERSION}-${BUILD_TIMESTAMP}-${ENVIRONMENT}"
-fi
-
-echo "$FULL_VERSION"
+echo "v${BASE_VERSION}"

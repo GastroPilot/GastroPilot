@@ -494,174 +494,215 @@ npm run test:watch
 
 ### Umgebungen
 
-| Umgebung | URL | Deployment |
-|----------|-----|------------|
-| Development | localhost | `dev/docker-compose.yml` (lokal) |
-| Test | test.gastropilot.de | Automatisch via Submodule CI |
-| Staging | staging.gastropilot.de | Manuell via Deploy-Workflow |
-| Demo | demo.gastropilot.de | Manuell via Deploy-Workflow |
-| Production | gastropilot.de | Manuell via Release-Workflow |
+| Umgebung | URL | Deployment | Server |
+|----------|-----|------------|--------|
+| Development | localhost | `dev/docker-compose.yml` (lokal) | Lokal |
+| Test | test.gpilot.app | Submodule CI / Deploy-Workflow | APP-02 (10.0.3.1) |
+| Staging | staging.gpilot.app | Deploy-Workflow | APP-02 (10.0.3.1) |
+| Demo | demo.gpilot.app | Deploy-Workflow | APP-02 (10.0.3.1) |
+| Production | gpilot.app | Release-Workflow | APP-01 (10.0.1.1) |
 
 ### CI/CD Workflows
 
 #### Submodule CI/CD (automatisch)
 
-Jedes Submodule hat einen eigenen CI/CD-Workflow (`ci-cd.yml`). Bei Push auf `main` werden die Docker Images automatisch mit dem Tag `:test` gebaut und gepusht. Watchtower auf dem Test-Server aktualisiert die Container automatisch.
+Jedes Submodule hat einen eigenen CI/CD-Workflow (`ci-cd.yml`). Bei Push auf `main` werden Docker Images automatisch mit dem Tag `:test` gebaut. Die Version wird aus `package.json` gelesen.
 
 ```
 Push auf main (Submodule)
-    ↓
+    |
 GitHub Actions: ci-cd.yml
-    ├── Lint & Build Check
-    └── Docker Build & Push → :test Tag
-        └── Watchtower → Test-Environment
+    +-- Lint & Build Check
+    +-- Docker Build & Push -> :test Tag
+        +-- Server: docker compose pull && ./update.sh
 ```
 
-#### Deploy Workflow (manuell für Staging & Demo)
+#### Deploy Workflow (Test, Staging, Demo)
 
-Für Staging und Demo wird der zentrale **Deploy**-Workflow im Haupt-Repo verwendet:
+Der zentrale **Deploy**-Workflow im Haupt-Repo erstellt automatisch RC-Versionen:
 
-1. Gehe zu **Actions** → **Deploy**
-2. Klicke auf **Run workflow**
-3. Wähle:
-   - **Environment:** `staging` oder `demo`
-   - **Ref:** Branch oder Tag (z.B. `main`, `v0.13.0`)
-   - **Version:** App-Version als Text (wird als `NEXT_PUBLIC_APP_VERSION` übernommen)
-4. Klicke auf **Run workflow**
+1. **Actions** > **Deploy** > **Run workflow**
+2. Wähle:
+   - **Environment:** `test`, `staging`, `demo` oder `all`
+   - **Services:** `all`, `frontend`, `backend` oder einzelner Service (z.B. `dashboard`)
+   - **Ref:** Branch oder Tag (z.B. `main`)
+   - **Version Bump:** `auto` (nächste RC-Nummer) oder `patch`/`minor`/`major` (neuer Zyklus)
 
-Alle 8 Docker Images werden mit dem Environment-Tag (`:staging` oder `:demo`) gebaut und gepusht.
+**Beispiel: Nur Dashboard auf Test deployen:**
+- Environment: `test`, Services: `dashboard`, Bump: `auto`
+- Erstellt: `v0.14.3-rc.1-dashboard`, baut nur das Dashboard-Image
+
+**Beispiel: Alles auf Staging deployen:**
+- Environment: `staging`, Services: `all`, Bump: `auto`
+- Erstellt: `v0.14.3-rc.2`, baut alle 8 Services
 
 #### Release Workflow (Production)
 
-Für Production wird der **Release**-Workflow verwendet. Die Release-Version wird automatisch als `NEXT_PUBLIC_APP_VERSION` übernommen.
-
-1. Gehe zu **Actions** → **Release**
-2. Wähle den Bump-Type (patch/minor/major)
+1. **Actions** > **Release** > **Run workflow**
+2. Wähle:
+   - **`promote`** - Aktuelle RC zur Production machen (z.B. `0.14.3-rc.4` -> `0.14.3`)
+   - **`patch`/`minor`/`major`** - Direkter Release (Hotfix ohne RC-Zyklus)
 3. Optional: "Deploy to production" aktivieren
 
 Images werden mit `:v{version}`, `:latest` und `:production` getaggt.
 
-### Docker Image Tags pro Environment
+### Docker Image Tags
 
-| Environment | Image Tag | Trigger |
-|-------------|-----------|---------|
-| Test | `:test` | Automatisch bei Push auf `main` (Submodule) |
-| Staging | `:staging` | Manuell via Deploy-Workflow |
-| Demo | `:demo` | Manuell via Deploy-Workflow |
-| Production | `:v{version}`, `:latest`, `:production` | Manuell via Release-Workflow |
+| Environment | Image Tag | Trigger | Version-Beispiel |
+|-------------|-----------|---------|-----------------|
+| Test | `:test` | Submodule CI oder Deploy-Workflow | `v0.14.3-rc.1-dashboard` |
+| Staging | `:staging` | Deploy-Workflow | `v0.14.3-rc.2` |
+| Demo | `:demo` | Deploy-Workflow | `v0.14.3-rc.2` |
+| Production | `:v0.14.3`, `:latest`, `:production` | Release-Workflow | `v0.14.3` |
 
 ### Manuelles Deployment
 
 ```bash
-# SSH auf Server
-ssh user@server
+# SSH auf Server (via WireGuard + INFRA-SRV Jump-Host)
+ssh app-02      # Test/Staging/Demo
+ssh app-01      # Production
 
-# Zum Umgebungsverzeichnis wechseln
-cd /opt/gastropilot/test  # oder staging/demo/production
+# Zum Environment-Verzeichnis wechseln
+cd /opt/test    # oder /opt/staging, /opt/demo, /opt/production
 
-# Images pullen und neu starten
+# Update (Pull + Migration + Restart)
+./update.sh
+
+# Oder manuell:
 docker compose pull
 docker compose up -d
-
-# DB-Migration (falls nötig)
 docker compose exec core alembic -c alembic.ini upgrade head
-
-# Health Check
-curl http://localhost:8000/v1/health
 ```
 
-### Server-Struktur
+### Server-Architektur
 
 ```
-/opt/gastropilot/
-├── test/
-│   ├── docker-compose.yml
-│   └── .env
-├── staging/
-│   ├── docker-compose.yml
-│   └── .env
-├── demo/
-│   ├── docker-compose.yml
-│   └── .env
-└── production/
-    ├── docker-compose.yml
-    └── .env
+APP-01 (10.0.1.1) - Production
+  /opt/production/
+
+APP-02 (10.0.3.1) - Non-Production
+  /opt/test/        <- gastropilot-test-*
+  /opt/staging/     <- gastropilot-staging-*
+  /opt/demo/        <- gastropilot-demo-*
+
+DB-01  (10.0.2.1) - PostgreSQL Primary + Redis
+DB-02  (10.0.2.2) - PostgreSQL Replica
+INFRA  (10.0.0.2) - WireGuard, CoreDNS, Monitoring
 ```
+
+### Hilfs-Skripte (pro Environment)
+
+| Skript | Funktion |
+|--------|----------|
+| `./update.sh` | Images pullen, DB-Migration, Container neustarten |
+| `./maintenance.sh on\|off` | Wartungsmodus ein-/ausschalten |
+| `./coming-soon.sh on\|off` | Coming-Soon-Seite ein-/ausschalten |
 
 ---
 
 ## Versioning & Releases
 
-### Semantic Versioning
+### Versionierungsmodell
 
-Wir verwenden [Semantic Versioning](https://semver.org/) (SemVer):
+GastroPilot nutzt **Semantic Versioning** mit **Release Candidates** (RC):
 
 ```
-MAJOR.MINOR.PATCH
-  │     │     └── Bugfixes, kleine Änderungen
-  │     └──────── Neue Features (abwärtskompatibel)
-  └────────────── Breaking Changes
+v{MAJOR}.{MINOR}.{PATCH}[-rc.{N}[-{service}]]
 ```
 
-**Aktuelle Version:** Siehe `VERSION` Datei im Root
+| Beispiel | Bedeutung |
+|----------|-----------|
+| `v0.14.2` | Stabile Production-Version |
+| `v0.14.3-rc.1` | Plattform-RC (alle Services, auf Test/Staging) |
+| `v0.14.3-rc.3-dashboard` | Service-RC (nur Dashboard, auf Test) |
+| `v0.15.0-rc.1` | Erster RC fuer naechstes Minor-Release |
+
+### Typischer Release-Zyklus
+
+```
+Tag        Aktion                              VERSION            Git-Tag
+---------- ----------------------------------- ------------------ ----------------------
+Mo 06.04   Dashboard-Fix -> Deploy auf Test    (unv.)             v0.14.3-rc.1-dashboard
+Di 07.04   Core-Bugfix -> Deploy auf Test      (unv.)             v0.14.3-rc.1-core
+Mi 08.04   Alles auf Staging deployen          0.14.3-rc.1        v0.14.3-rc.1
+Do 09.04   Noch ein Fix -> Staging             0.14.3-rc.2        v0.14.3-rc.2
+Fr 10.04   Promote -> Production               0.14.3             v0.14.3
+Mo 13.04   Neues Feature -> Deploy auf Test    (unv.)             v0.14.4-rc.1-web
+```
+
+### Versionsanzeige im Frontend
+
+Alle 4 Frontends (Web, Dashboard, KDS, Table-Order) zeigen die Version im Footer:
+
+```
+Test:       v0.14.3-rc.2-test (20260405-143025)
+Staging:    v0.14.3-rc.3-staging (20260409-091500)
+Production: v0.14.3-prod (20260410-120000)
+```
+
+### Versions-Skripte
+
+| Skript | Funktion |
+|--------|----------|
+| `scripts/bump-rc.sh [bump] [service]` | Berechnet naechste RC-Version aus Git-Tags |
+| `scripts/version.sh <component> [env]` | Gibt aktuelle Version fuer eine Komponente aus |
+
+```bash
+# Beispiele
+./scripts/bump-rc.sh                     # 0.14.3-rc.1     (Plattform)
+./scripts/bump-rc.sh auto dashboard      # 0.14.3-rc.1-dashboard (Service)
+./scripts/bump-rc.sh minor               # 0.15.0-rc.1     (neuer Minor-Zyklus)
+
+./scripts/version.sh web production      # v0.14.2          (aus package.json)
+./scripts/version.sh core test           # v0.14.3-rc.2     (aus VERSION, falls RC)
+```
 
 ### Release erstellen
 
-Releases werden über GitHub Actions erstellt:
+#### A) RC auf Test/Staging deployen
 
-1. Gehe zu **Actions** → **Release**
-2. Klicke auf **Run workflow**
-3. Wähle den Bump-Type:
-   - `patch` (0.9.1 → 0.9.2) - Bugfixes
-   - `minor` (0.9.1 → 0.10.0) - Neue Features
-   - `major` (0.9.1 → 1.0.0) - Breaking Changes
-4. Optional: "Deploy to production" aktivieren
-5. Klicke auf **Run workflow**
+1. **Actions** > **Deploy**
+2. Environment: `test` oder `staging`
+3. Services: `all` oder einzelner Service
+4. Version Bump: `auto`
 
-**Was passiert beim Release:**
+-> Erstellt automatisch die naechste RC-Version und taggt sie.
 
-1. VERSION-Datei wird aktualisiert
-2. CHANGELOG.md wird generiert
-3. Git-Tag wird erstellt (z.B. `v0.9.2`)
-4. GitHub Release wird erstellt
-5. Docker Images werden getaggt (`v0.9.2`, `latest`)
-6. Optional: Automatisches Production Deployment
+#### B) RC zur Production promoten
 
-### CHANGELOG
+1. **Actions** > **Release**
+2. Release-Typ: **`promote`**
+3. Deploy to Production: `true`
 
-Der Changelog wird automatisch aus Commits generiert. Format:
+-> Entfernt den RC-Suffix (z.B. `0.14.3-rc.4` -> `0.14.3`) und baut alle Images.
 
-```markdown
-## [0.9.2] - 2026-01-30
+#### C) Hotfix (direkt ohne RC)
 
-### Added
-- feat: neue Funktion XY
+1. **Actions** > **Release**
+2. Release-Typ: **`patch`**
+3. Deploy to Production: `true`
 
-### Fixed
-- fix: Problem mit AB behoben
+-> Erstellt direkt einen neuen Patch-Release ohne vorherigen RC-Zyklus.
 
-### Changed
-- refactor: Code-Verbesserungen
-```
+### VERSION-Datei
+
+Die `VERSION`-Datei im Root-Verzeichnis enthaelt die aktuelle Version:
+
+- **Stabile Version:** `0.14.2` (Production)
+- **RC-Version:** `0.14.3-rc.2` (waehrend eines RC-Zyklus)
+
+Die VERSION-Datei wird automatisch durch die Workflows aktualisiert.
 
 ---
 
 ## Milestones
 
-Wir verwenden **GitHub Milestones** zur Planung und Verfolgung von Releases. Jeder Milestone repräsentiert eine geplante Version.
-
-### Geplante Milestones
-
-| Milestone | Ziel | Fokus |
-|-----------|------|-------|
-| **v0.9.2** | Bugfixes & Stabilität | Behebung bekannter Fehler, Performance-Optimierungen |
-| **v0.10.0** | Feature-Erweiterungen | Neue Funktionen basierend auf Kundenfeedback |
-| **v1.0.0** | Stable Release | Produktionsreife, vollständige Dokumentation, API-Stabilität |
+Wir verwenden **GitHub Milestones** zur Planung und Verfolgung von Releases. Jeder Milestone repraesentiert eine geplante Version.
 
 ### Milestone-Workflow
 
-1. **Milestone erstellen** (GitHub → Issues → Milestones → New milestone)
-   - Name: Version (z.B. `v0.9.2`)
+1. **Milestone erstellen** (GitHub > Issues > Milestones > New milestone)
+   - Name: Version (z.B. `v0.15.0`)
    - Beschreibung: Ziele und Fokus des Releases
    - Due Date: Geplantes Release-Datum (optional)
 
@@ -671,53 +712,25 @@ Wir verwenden **GitHub Milestones** zur Planung und Verfolgung von Releases. Jed
 
 3. **Fortschritt verfolgen**
    - GitHub zeigt automatisch den Fortschritt (offene vs. geschlossene Issues)
-   - Regelmäßige Review-Meetings zum Milestone-Status
 
-4. **Release auslösen**
+4. **Release ausloesen**
    - Wenn alle Issues eines Milestones geschlossen sind
-   - Release-Workflow starten (siehe [Release erstellen](#release-erstellen))
-   - Milestone schließen
+   - RC auf Test/Staging deployen und testen
+   - Release-Workflow mit "promote" starten
+   - Milestone schliessen
 
-### Issues mit Milestones verknüpfen
-
-**Via GitHub CLI:**
+### Issues mit Milestones verknuepfen
 
 ```bash
 # Issue mit Milestone erstellen
-gh issue create --title "Bug: Login fehlerhaft" --milestone "v0.9.2"
+gh issue create --title "Bug: Login fehlerhaft" --milestone "v0.15.0"
 
 # Bestehendes Issue zuweisen
-gh issue edit 123 --milestone "v0.9.2"
+gh issue edit 123 --milestone "v0.15.0"
 
 # PR mit Milestone erstellen
-gh pr create --title "fix: Login-Bug beheben" --milestone "v0.9.2"
+gh pr create --title "fix: Login-Bug beheben" --milestone "v0.15.0"
 ```
-
-### Milestone-Kategorien
-
-**v0.9.x (Patch Releases):**
-- Kritische Bugfixes
-- Sicherheitsupdates
-- Kleine Verbesserungen
-- Keine neuen Features
-
-**v0.10.0+ (Minor Releases):**
-- Neue Features
-- UI/UX-Verbesserungen
-- API-Erweiterungen (abwärtskompatibel)
-
-**v1.0.0 (Major Release):**
-- Stabile, produktionsreife Version
-- Vollständige API-Dokumentation
-- Breaking Changes (falls nötig)
-- Langzeit-Support (LTS)
-
-### Best Practices
-
-- **Scope begrenzen:** Nicht zu viele Issues pro Milestone
-- **Priorisieren:** Must-have vs. Nice-to-have klar trennen
-- **Flexibel bleiben:** Issues bei Bedarf in späteren Milestone verschieben
-- **Kommunizieren:** Team über Milestone-Änderungen informieren
 
 ---
 
@@ -736,75 +749,32 @@ git submodule update --remote --merge
 # Komplette Dev-Umgebung starten
 docker compose -f dev/docker-compose.yml up -d
 
-# Services neu bauen
-docker compose -f dev/docker-compose.yml build
-
-# Logs anzeigen (alle Services)
+# Logs anzeigen
 docker compose -f dev/docker-compose.yml logs -f
 
-# Logs für einzelnen Service
+# Logs fuer einzelnen Service
 docker compose -f dev/docker-compose.yml logs -f core
-docker compose -f dev/docker-compose.yml logs -f orders
-docker compose -f dev/docker-compose.yml logs -f frontend
-docker compose -f dev/docker-compose.yml logs -f postgres
-
-# In Container einloggen
-docker compose -f dev/docker-compose.yml exec core sh
-docker compose -f dev/docker-compose.yml exec orders sh
-docker compose -f dev/docker-compose.yml exec frontend sh
-docker compose -f dev/docker-compose.yml exec postgres psql -U gastropilot -d gastropilot
 
 # Services stoppen
 docker compose -f dev/docker-compose.yml down
 
-# Services stoppen und Volumes löschen (Datenbank wird zurückgesetzt!)
+# Services stoppen + Datenbank zuruecksetzen
 docker compose -f dev/docker-compose.yml down -v
-
-# Service neu starten
-docker compose -f dev/docker-compose.yml restart core
-docker compose -f dev/docker-compose.yml restart orders
-```
-
-### Einzelne Services (Alternative)
-
-```bash
-# Core + Orders + Database + Redis + Gateway
-docker compose -f dev/docker-compose.yml up -d postgres redis core orders nginx
-docker compose -f dev/docker-compose.yml logs -f core
-docker compose -f dev/docker-compose.yml logs -f orders
-
-# Frontend
-docker compose -f dev/docker-compose.yml up -d frontend
-docker compose -f dev/docker-compose.yml logs -f frontend
 ```
 
 ### Datenbank
 
 ```bash
-# Datenbank-Migration (Core)
+# Migration
 docker compose -f dev/docker-compose.yml exec core alembic upgrade head
 
-# PostgreSQL CLI (wenn mit dev/docker-compose.yml gestartet)
+# PostgreSQL CLI
 docker compose -f dev/docker-compose.yml exec postgres psql -U gastropilot -d gastropilot
-
-# Datenbank zurücksetzen
-docker compose -f dev/docker-compose.yml down -v
-docker compose -f dev/docker-compose.yml up -d
-```
-
-### Dependencies
-
-```bash
-# Dependency Updates prüfen
-cd backend && pip list --outdated
-cd web && npm outdated
-cd restaurant-app && npm outdated
 ```
 
 ### Mobile App
 
 ```bash
-# Mobile App starten
 cd restaurant-app && npx expo start
 ```
 
@@ -815,7 +785,6 @@ cd restaurant-app && npx expo start
 ### Submodule-Probleme
 
 ```bash
-# Submodules zurücksetzen
 git submodule deinit -f .
 git submodule update --init --recursive
 ```
@@ -823,26 +792,15 @@ git submodule update --init --recursive
 ### Docker-Probleme
 
 ```bash
-# Development Environment: Alle Container stoppen und entfernen
 docker compose -f dev/docker-compose.yml down -v
-
-# Images neu bauen
 docker compose -f dev/docker-compose.yml build --no-cache
-
-# Neu starten
 docker compose -f dev/docker-compose.yml up -d
-
-# Nur Core frisch bauen/starten
-docker compose -f dev/docker-compose.yml build --no-cache core
-docker compose -f dev/docker-compose.yml up -d core
 ```
 
 ### Port bereits belegt
 
 ```bash
-# Prozess auf Port finden (macOS/Linux)
 lsof -i :8000
-# Prozess beenden
 kill -9 <PID>
 ```
 
@@ -852,8 +810,8 @@ kill -9 <PID>
 
 - **GitHub Issues:** Bugs und Feature Requests
 - **Slack:** Team-Kommunikation
-- **SECURITY.md:** Sicherheitslücken melden
+- **SECURITY.md:** Sicherheitsluecken melden
 
 ---
 
-*Letzte Aktualisierung: März 2026*
+*Letzte Aktualisierung: April 2026*
