@@ -596,6 +596,10 @@ services:
       SMTP_USE_TLS: ${SMTP_USE_TLS}
       SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL}
       SMTP_FROM_NAME: ${SMTP_FROM_NAME}
+      UPLOAD_DIR: /data/uploads
+      UPLOAD_PUBLIC_URL: https://${API_DOMAIN_HOST}/uploads
+    volumes:
+      - upload_data:/data/uploads
     depends_on:
       redis:
         condition: service_healthy
@@ -750,6 +754,7 @@ services:
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
       - ./html:/usr/share/nginx/html:ro
+      - upload_data:/data/uploads:ro
     depends_on:
       - core
       - orders
@@ -878,6 +883,7 @@ networks:
 
 volumes:
   redis_data:
+  upload_data:
 COMPOSEEOF
 
 echo "  docker-compose.yml generiert."
@@ -1156,6 +1162,15 @@ http {
             proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto \$http_x_forwarded_proto;
             proxy_set_header Connection "";
+        }
+
+        # --- Uploads (Bilder, lokal gespeichert) ---
+        location /uploads/ {
+            alias /data/uploads/;
+            expires 30d;
+            add_header Cache-Control "public, max-age=2592000, immutable";
+            add_header X-Content-Type-Options nosniff always;
+            try_files \$uri =404;
         }
 
         # --- Next.js static assets (immer erreichbar) ---
