@@ -118,12 +118,7 @@ jobs:
             COMMITS=$(git log --pretty=format:"- %s (%h)" --no-merges | head -50)
           fi
 
-          ENTRY="## [${NEW_VERSION}] - ${RELEASE_DATE}
-
-### Changes
-${COMMITS}
-
-"
+          ENTRY=$(printf "## [%s] - %s\n\n### Changes\n%s\n" "$NEW_VERSION" "$RELEASE_DATE" "$COMMITS")
 
           if [ -f CHANGELOG.md ]; then
             EXISTING=$(tail -n +3 CHANGELOG.md)
