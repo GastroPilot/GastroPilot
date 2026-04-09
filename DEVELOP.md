@@ -1,99 +1,62 @@
 # GastroPilot - Entwicklerhandbuch
 
-Dieses Dokument beschreibt, wie das GastroPilot-Projekt entwickelt, versioniert und deployed wird.
+Internes Handbuch für das Entwicklerteam (Luca & Sascha). Beschreibt Setup, Workflows, Testing, Deployment und Versionierung.
 
 ## Inhaltsverzeichnis
 
-- [Projektstruktur](#projektstruktur)
-- [Technologie-Stack](#technologie-stack)
+- [Projekt-Überblick](#projekt-Überblick)
+- [Arbeitsbereiche & Zuständigkeiten](#arbeitsbereiche--zuständigkeiten)
 - [Entwicklungsumgebung einrichten](#entwicklungsumgebung-einrichten)
-- [Git Submodules Workflow](#git-submodules-workflow)
-- [Entwicklungs-Workflow](#entwicklungs-workflow)
-- [Code-Qualität](#code-qualität)
-- [Testing](#testing)
+- [Git & Submodule Workflow](#git--submodule-workflow)
+- [Arbeitsbereich: Web-Frontend](#arbeitsbereich-web-frontend)
+- [Arbeitsbereich: Backend](#arbeitsbereich-backend)
+- [Arbeitsbereich: Mobile Apps](#arbeitsbereich-mobile-apps)
+- [Bereichsübergreifende Entwicklung](#bereichsübergreifende-entwicklung)
 - [Deployment](#deployment)
-- [Versioning & Releases](#versioning--releases)
-- [Milestones](#milestones)
+- [Versionierung & Releases](#versionierung--releases)
+- [Hilfreiche Befehle](#hilfreiche-befehle)
+- [Troubleshooting](#troubleshooting)
 
 ---
 
-## Projektstruktur
+## Projekt-Überblick
 
-GastroPilot ist ein **Monorepo mit Git Submodules**:
+GastroPilot ist ein **Monorepo mit Git Submodules**. Jede Komponente lebt in einem eigenen Repository und wird hier als Submodule eingebunden.
 
 ```
 GastroPilot/
-├── .github/workflows/   # CI/CD Pipelines
-├── .github/ISSUE_TEMPLATE/
-├── backend/             # FastAPI Backend Microservices (Submodule)
-├── web/                 # Next.js Dashboard (Submodule)
-├── restaurant-app/      # Expo React Native App (Submodule)
-├── guest-portal/        # Guest Web Portal (Submodule)
-├── kds/                 # Kitchen Display System (Submodule)
-├── table-order/         # QR Table Ordering PWA (Submodule)
-├── infra/
-│   ├── demo/            # Demo-Environment Reset & Seeds
-│   └── sql/             # DB-Initialisierung & Migrations
-├── dev/                     # Entwicklungsumgebung (Docker Compose, nginx, .env)
-│   ├── docker-compose.yml
-│   ├── .env.example
-│   └── nginx/
-├── VERSION              # Aktuelle Version (semver)
-├── AUTHORS.md           # Projektautoren
-├── LICENSE              # Lizenzinformationen
-├── SECURITY.md          # Sicherheitsrichtlinien
-├── README.md            # Projektübersicht
-└── CHANGELOG.md         # Release-Historie
+├── .github/workflows/       # CI/CD (deploy.yml, release.yml)
+├── backend/                  # FastAPI Microservices (Submodule)
+│   ├── services/core/        #   Auth, Restaurants, Menüs, Reservierungen (Port 8000)
+│   ├── services/orders/      #   Bestellungen, Küche, Rechnungen, SumUp (Port 8001)
+│   ├── services/ai/          #   Sitzplatz-Optimierung, Peak-Prediction (Port 8002)
+│   ├── services/notifications/ # Email, SMS, WhatsApp via Celery (Port 8003)
+│   └── packages/shared/      #   Geteilter Code (Auth, Tenant, Events, Schemas)
+├── web/                      # Öffentliche Website + Gäste-Portal (Port 3000, Submodule)
+├── dashboard/                # Restaurant-Management Dashboard (Port 3001, Submodule)
+├── kds/                      # Kitchen Display System (Port 3004, Submodule)
+├── table-order/              # QR-Tischbestellung PWA (Port 3003, Submodule)
+├── app/                      # Gäste Mobile App (Expo, Submodule)
+├── restaurant-app/           # Restaurant Staff App (Expo, Submodule)
+├── dev/                      # Docker Compose, nginx, .env
+├── scripts/                  # Versions- und Deploy-Skripte
+├── infra/                    # SQL-Init, RLS-Policies, Demo-Seeds
+└── VERSION                   # Aktuelle Plattform-Version (semver)
 ```
-
-### Submodule-Repositories
-
-| Submodule | Repository |
-|-----------|------------|
-| Backend | `https://github.com/GastroPilot/backend.git` |
-| Frontend | `https://github.com/GastroPilot/web.git` |
-| App | `https://github.com/GastroPilot/restaurant-app.git` |
-| Guest Portal | `https://github.com/GastroPilot/gastropilot-guest-portal.git` |
-| KDS | `https://github.com/GastroPilot/gastropilot-kds.git` |
-| Table Order | `https://github.com/GastroPilot/gastropilot-table-order.git` |
 
 ---
 
-## Technologie-Stack
+## Arbeitsbereiche & Zuständigkeiten
 
-### Backend
+Das Projekt ist in **drei Arbeitsbereiche** aufgeteilt:
 
-| Komponente | Technologie |
-|------------|-------------|
-| Framework | FastAPI 0.115+ |
-| Sprache | Python 3.11 |
-| Datenbank | PostgreSQL 16 (Prod), SQLite (Dev) |
-| ORM | SQLAlchemy 2.0 (async) |
-| Auth | JWT (python-jose) |
-| Linting | Ruff, Black, isort |
-| Testing | pytest, pytest-asyncio |
+| Arbeitsbereich | Submodules | Zuständig | Tech-Stack |
+|---------------|------------|------------|------------|
+| **Web-Frontend** | `web`, `dashboard`, `kds`, `table-order` | Luca: web; Sascha: dashboard, kds, table-order | Next.js 16, React 19, Tailwind 4, shadcn/ui |
+| **Backend** | `backend` | Beide | FastAPI, Python 3.11, SQLAlchemy 2.0 async, PostgreSQL |
+| **Mobile Apps** | `app`, `restaurant-app` | Luca: app; Sascha: restaurant-app | Expo, React Native, Expo Router |
 
-### Frontend
-
-| Komponente | Technologie |
-|------------|-------------|
-| Framework | Next.js 16+ (App Router) |
-| UI | React 19, TypeScript 5 |
-| Styling | Tailwind CSS 4 |
-| Components | shadcn/ui |
-| Data Fetching | TanStack React Query v5 |
-| Linting | ESLint, Prettier |
-| Testing | Vitest, Playwright |
-
-### Mobile App
-
-| Komponente | Technologie |
-|------------|-------------|
-| Framework | Expo + Expo Router |
-| UI | React Native, TypeScript |
-| Auth | PIN-Login, NFC-Login (native) |
-| API Client | Custom REST Client (`lib/api`) |
-| Linting | ESLint |
+**Code Review:** Mindestens 1 Approval erforderlich. Wir reviewen gegenseitig — jeder kontrolliert die Arbeit des anderen. Beim Backend reviewen beide.
 
 ---
 
@@ -105,9 +68,9 @@ GastroPilot/
 - Docker & Docker Compose
 - Node.js 22+
 - Python 3.11+
-- pnpm oder npm
+- npm
 
-### 1. Repository klonen (mit Submodules)
+### 1. Repository klonen
 
 ```bash
 git clone --recurse-submodules https://github.com/GastroPilot/GastroPilot.git
@@ -120,373 +83,556 @@ Falls bereits geklont ohne Submodules:
 git submodule update --init --recursive
 ```
 
-### 2. Backend einrichten
+### 2. Docker Compose (empfohlen)
+
+Die einfachste Methode — startet alle Services mit Hot-Reload:
 
 ```bash
-cd backend
+# Umgebungsvariablen anlegen
+cp dev/.env.example dev/.env
 
-# Virtuelle Umgebung erstellen
-python -m venv venv
-source venv/bin/activate  # macOS/Linux
-# oder: venv\Scripts\activate  # Windows
-
-# Dependencies installieren
-pip install -r requirements.txt
-
-# Service-Umgebungsvariablen anlegen
-cp services/core/.env.example services/core/.env
-cp services/orders/.env.example services/orders/.env
-```
-
-**Wichtige Umgebungsvariablen (services/core/.env):**
-
-```bash
-ENV=development
-DATABASE_URL=postgresql+asyncpg://gastropilot_app:gastropilot_app_password@localhost:5432/gastropilot
-DATABASE_ADMIN_URL=postgresql+asyncpg://gastropilot_admin:gastropilot_admin_password@localhost:5432/gastropilot
-JWT_SECRET=<generiere-einen-sicheren-schlüssel>
-CORS_ORIGINS=http://localhost:3000,http://localhost:3001
-# Optional lokal ohne Redis:
-REDIS_URL=
-```
-
-**Wichtige Umgebungsvariablen (services/orders/.env):**
-
-```bash
-ENV=development
-DATABASE_URL=postgresql+asyncpg://gastropilot_app:gastropilot_app_password@localhost:5432/gastropilot
-DATABASE_ADMIN_URL=postgresql+asyncpg://gastropilot_admin:gastropilot_admin_password@localhost:5432/gastropilot
-JWT_SECRET=<derselbe JWT_SECRET wie im core-service>
-CORS_ORIGINS=http://localhost:3000,http://localhost:3001
-REDIS_URL=redis://localhost:6379/0
-```
-
-**Startvarianten (lokal):**
-
-```bash
-# A) Nur Core (Auth/Tenant/Reservierungen etc., NICHT vollständige App-Funktion)
-cd backend/services/core
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-```bash
-# B) Core + Orders (zwei Terminals)
-# Terminal 1
-cd backend/services/core
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-
-# Terminal 2
-cd backend/services/orders
-uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
-```
-
-```bash
-# C) Empfohlen für vollständige lokale Entwicklung:
-# nginx + core + orders + db + redis (+ optional ai/notifications)
-cd GastroPilot
+# Alle Services starten
 docker compose -f dev/docker-compose.yml up -d
+
+# Oder nur Backend-Basis (für Frontend-Entwicklung)
+docker compose -f dev/docker-compose.yml up -d postgres redis core orders nginx
+
+# Logs verfolgen
+docker compose -f dev/docker-compose.yml logs -f core orders
 ```
 
-### 3. Frontend einrichten
+**Erreichbare Services:**
+
+| Service | URL |
+|---------|-----|
+| nginx Gateway (API) | http://localhost:80 |
+| Web | http://localhost:3000 |
+| Dashboard | http://localhost:3001 |
+| Table-Order | http://localhost:3003 |
+| KDS | http://localhost:3004 |
+| MinIO Console | http://localhost:9001 |
+| PostgreSQL | localhost:5432 |
+| Redis | localhost:6379 |
+
+### 3. Einzelne Arbeitsbereiche einrichten
+
+Wenn du ohne Docker direkt in einem Arbeitsbereich entwickeln willst, siehe die jeweiligen Abschnitte unten:
+
+- [Web-Frontend Setup](#lokales-setup)
+- [Backend Setup](#lokales-setup-1)
+- [Mobile Apps Setup](#lokales-setup-2)
+
+---
+
+## Git & Submodule Workflow
+
+### Branch-Konvention
+
+- `main` — Produktionsbereiter Code
+- `feature/*` — Neue Features
+- `fix/*` — Bugfixes
+- `chore/*` — Wartungsarbeiten
+
+### Commit-Konvention
+
+[Conventional Commits](https://www.conventionalcommits.org/):
+
+```
+<type>(<scope>): <description>
+```
+
+| Type | Verwendung |
+|------|-----------|
+| `feat` | Neues Feature |
+| `fix` | Bugfix |
+| `refactor` | Code-Umbau ohne Funktionsänderung |
+| `docs` | Dokumentation |
+| `test` | Tests |
+| `style` | Formatierung |
+| `chore` | Wartung, Dependencies, CI |
 
 ```bash
-cd web
+# Beispiele
+git commit -m "feat(reservations): add waitlist functionality"
+git commit -m "fix(auth): resolve token refresh issue"
+git commit -m "chore(deps): update shadcn/ui components"
+```
+
+### In einem Submodule arbeiten
+
+```bash
+# 1. Ins Submodule wechseln
+cd dashboard
+
+# 2. Branch erstellen
+git checkout -b feature/neue-ansicht
+
+# 3. Entwickeln, committen
+git add .
+git commit -m "feat(dashboard): add analytics view"
+git push origin feature/neue-ansicht
+
+# 4. PR im Submodule-Repository erstellen
+# 5. Review abwarten, mergen lassen
+```
+
+### Submodule-Referenz im Hauptrepo aktualisieren
+
+Nach dem Merge eines PR im Submodule muss das Hauptrepo die neue Referenz kennen:
+
+```bash
+# Im Root-Verzeichnis
+cd dashboard
+git checkout main
+git pull
+
+cd ..
+git add dashboard
+git commit -m "chore: update dashboard submodule"
+git push
+```
+
+### Alle Submodules aktualisieren
+
+```bash
+# Alle auf neuesten main-Stand bringen
+git submodule update --remote --merge
+
+# Oder nur ein bestimmtes
+git submodule update --remote backend
+```
+
+---
+
+## Arbeitsbereich: Web-Frontend
+
+**Submodules:** `web` (Port 3000), `dashboard` (Port 3001), `kds` (Port 3004), `table-order` (Port 3003)
+
+Alle vier Apps teilen denselben Tech-Stack und dieselbe Projektstruktur.
+
+### Tech-Stack
+
+| Komponente | Technologie |
+|------------|-------------|
+| Framework | Next.js 16+ (App Router) |
+| UI | React 19, TypeScript 5 |
+| Styling | Tailwind CSS 4, shadcn/ui |
+| State | Zustand |
+| Data Fetching | TanStack React Query v5 |
+| Dates | date-fns |
+| Icons | lucide-react |
+| Linting | ESLint, Prettier |
+| Testing | Vitest (Unit), Playwright (E2E) |
+
+### Lokales Setup
+
+```bash
+cd web  # oder dashboard, kds, table-order
 
 # Dependencies installieren
 npm install
 
-# Umgebungsvariablen kopieren
+# Umgebungsvariablen
 cp .env.example .env.local
-# .env.local anpassen
-
-# Development Server starten
-npm run dev
 ```
 
 **Wichtige Umgebungsvariablen (.env.local):**
 
 ```bash
-# Empfohlen (nginx-Gateway aus dev/docker-compose.yml)
+# Mit nginx-Gateway (empfohlen, erfordert Docker Compose Backend)
 NEXT_PUBLIC_API_BASE_URL=http://localhost:80
 NEXT_PUBLIC_API_PREFIX=api/v1
 
-# Alternative nur für Core-Debugging:
+# Alternative: Direkt gegen Core-Service (eingeschränkte Funktionalität)
 # NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
 # NEXT_PUBLIC_API_PREFIX=v1
-#
-# Achtung: Mit "nur Core" sind nicht alle Frontend-Features verfügbar
-# (z.B. Orders/Kitchen und aktuell fehlende Table-CRUD-Endpunkte im core-service).
 ```
-
-### 4. Mobile App einrichten
 
 ```bash
-cd restaurant-app
-
-# Dependencies installieren
-npm install
-
-# Umgebungsvariablen kopieren
-cp env.example .env
-# .env anpassen (EXPO_PUBLIC_API_URL)
-
-# Expo starten
-npx expo start
+# Dev-Server starten
+npm run dev
 ```
 
-**Wichtige Umgebungsvariablen (.env):**
+### Entwicklungs-Workflow
+
+1. **Branch erstellen** im Submodule-Repo (`feature/*`, `fix/*`)
+2. **Entwickeln** mit `npm run dev` — Hot-Reload ist aktiv
+3. **Qualität prüfen** vor dem Commit:
+   ```bash
+   npm run lint          # ESLint
+   npm run format:check  # Prettier
+   npm run type-check    # TypeScript
+   ```
+4. **Automatisch formatieren** bei Bedarf:
+   ```bash
+   npm run format:write
+   ```
+5. **Committen & pushen**, PR erstellen
+6. **Review** durch den anderen Entwickler (1 Approval)
+7. **Merge** in `main`
+
+### Testing
+
+```bash
+# Unit/Integration Tests (Vitest)
+npm run test
+npm run test:coverage
+
+# E2E Tests (Playwright)
+npm run test:e2e
+```
+
+**Hinweise:**
+- `web` und `dashboard` haben vollständige Test-Setups (Vitest + Playwright)
+- `kds` und `table-order` haben aktuell noch minimale Test-Abdeckung
+
+### Submodule CI/CD
+
+Jedes Web-Frontend-Submodule hat einen eigenen `ci-cd.yml` Workflow:
+
+```
+Push auf main → GitHub Actions → Lint & Build Check → Docker Build & Push (:test Tag)
+```
+
+Die Version wird aus der jeweiligen `package.json` gelesen.
+
+---
+
+## Arbeitsbereich: Backend
+
+**Submodule:** `backend` mit 4 Microservices und Shared-Packages.
+
+### Tech-Stack
+
+| Komponente | Technologie |
+|------------|-------------|
+| Framework | FastAPI 0.115+ |
+| Sprache | Python 3.11 |
+| ORM | SQLAlchemy 2.0 (async) |
+| Datenbank | PostgreSQL 16 mit RLS |
+| Auth | JWT (python-jose) |
+| Events | Redis Pub/Sub |
+| Async Tasks | Celery (Notifications) |
+| Linting | Ruff, Black, isort |
+| Testing | pytest, pytest-asyncio |
+
+### Microservices
+
+| Service | Port | Scope |
+|---------|------|-------|
+| `services/core` | 8000 | Auth, Users, Restaurants, Reservierungen, Menüs, Tische, Gutscheine, Warteliste |
+| `services/orders` | 8001 | Bestellungen, Küche, Rechnungen, SumUp-Zahlung, WebSocket |
+| `services/ai` | 8002 | Sitzplatz-Optimierung, Peak-Prediction, Menüempfehlungen |
+| `services/notifications` | 8003 | Email (SMTP/Resend), SMS, WhatsApp (Twilio), Celery Worker |
+
+### Lokales Setup
+
+```bash
+cd backend
+
+# Virtuelle Umgebung
+python -m venv venv
+source venv/bin/activate  # macOS/Linux
+# venv\Scripts\activate   # Windows
+
+# Dependencies
+pip install -r requirements.txt
+
+# Umgebungsvariablen
+cp services/core/.env.example services/core/.env
+cp services/orders/.env.example services/orders/.env
+```
+
+**Wichtige .env-Variablen (beide Services):**
+
+```bash
+ENV=development
+DATABASE_URL=postgresql+asyncpg://gastropilot_app:gastropilot_app_password@localhost:5432/gastropilot
+DATABASE_ADMIN_URL=postgresql+asyncpg://gastropilot_admin:gastropilot_admin_password@localhost:5432/gastropilot
+JWT_SECRET=<gleicher Wert in core und orders>
+CORS_ORIGINS=http://localhost:3000,http://localhost:3001
+REDIS_URL=redis://localhost:6379/0
+```
+
+**Startvarianten:**
+
+```bash
+# A) Nur Core (für Auth/Tenant/Reservierungen)
+cd services/core && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+# B) Core + Orders (zwei Terminals)
+cd services/core && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+cd services/orders && uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
+
+# C) Empfohlen: Alles via Docker Compose
+docker compose -f dev/docker-compose.yml up -d
+```
+
+### Entwicklungs-Workflow
+
+1. **Branch erstellen** im Backend-Repo
+2. **Entwickeln** — bei Docker Compose werden Sourcen per Volume gemountet (Hot-Reload)
+3. **Qualität prüfen** vor dem Commit:
+   ```bash
+   ruff check services/ packages/
+   black --check services/ packages/
+   isort --check-only services/ packages/
+   ```
+4. **Automatisch formatieren:**
+   ```bash
+   black services/ packages/
+   isort services/ packages/
+   ```
+5. **Tests ausführen** (siehe Testing)
+6. **Committen & pushen**, PR erstellen
+7. **Review** durch den anderen Entwickler (1 Approval)
+8. **Merge** in `main`
+
+### Datenbank-Migrationen
+
+Alembic-Migrationen liegen nur im `services/core`-Verzeichnis:
+
+```bash
+# Migration erstellen
+cd services/core && alembic revision --autogenerate -m "add xyz column"
+
+# Migration ausführen (lokal)
+cd services/core && alembic upgrade head
+
+# Migration ausführen (Docker)
+docker compose -f dev/docker-compose.yml exec core alembic upgrade head
+```
+
+**Wichtig:** PostgreSQL Row-Level Security (RLS) isoliert Mandanten auf DB-Ebene. Jede Tabelle mit `tenant_id` hat RLS-Policies. Bei neuen Tabellen müssen entsprechende Policies in `infra/sql/rls.sql` ergänzt werden.
+
+### Testing
+
+```bash
+cd backend
+
+# Alle Tests
+pytest
+
+# Mit Coverage-Report
+pytest --cov=app --cov-report=html
+
+# Einzelne Datei
+pytest tests/test_orders.py -v
+
+# Nur schnelle Tests
+pytest -m "not slow"
+
+# Nur Integration-Tests
+pytest -m "integration"
+```
+
+**Konfiguration (pytest.ini):**
+- Mindest-Coverage: 35%
+- Async-Modus: auto
+- Reports: Terminal, HTML, XML, JSON
+- Marker: `slow`, `integration`
+
+### Submodule CI/CD
+
+```
+Push auf main → GitHub Actions → Lint & Build → Docker Build & Push (:test Tag)
+```
+
+---
+
+## Arbeitsbereich: Mobile Apps
+
+**Submodules:** `app` (Gäste-App), `restaurant-app` (Staff-App)
+
+### Tech-Stack
+
+| Komponente | Technologie |
+|------------|-------------|
+| Framework | Expo 54+, React Native 0.81+ |
+| Navigation | Expo Router 6 |
+| State | Zustand |
+| Data Fetching | TanStack React Query |
+| Auth | PIN-Login, NFC-Login (restaurant-app) |
+| Benachrichtigungen | Expo Notifications |
+| Build & Deploy | EAS Build, EAS Update |
+
+### Lokales Setup
+
+```bash
+cd restaurant-app  # oder app
+
+# Dependencies
+npm install
+
+# Umgebungsvariablen
+cp env.example .env
+```
+
+**Wichtige .env-Variablen:**
 
 ```bash
 EXPO_PUBLIC_API_URL=http://localhost:8000/v1
 ```
 
+```bash
+# Expo starten
+npx expo start
+```
+
 **Hinweise:**
-- Beim ersten Start fragt die App nach dem Restaurant-Kürzel (`tenant_slug`, z.B. `mein-restaurant`)
-- Für NFC-Login wird ein echtes Gerät mit NFC benötigt
-- NFC funktioniert nicht in Expo Go oder im Web
+- Beim ersten Start fragt die App nach dem Restaurant-Kürzel (`tenant_slug`)
+- NFC-Login erfordert ein echtes Gerät (nicht in Expo Go oder Web verfügbar)
+- Für iOS-Simulator: `npx expo start --ios`
+- Für Android-Emulator: `npx expo start --android`
 
-### 5. Docker Compose für Entwicklung (empfohlen)
+### Entwicklungs-Workflow
 
-#### Option A: Komplette Dev-Umgebung (Backend + Frontend + DB)
+1. **Branch erstellen** im Submodule-Repo
+2. **Entwickeln** mit `npx expo start`
+3. **Qualität prüfen:**
+   ```bash
+   npm run lint
+   npm run typecheck  # nur app/
+   ```
+4. **Committen & pushen**, PR erstellen
+5. **Review** durch den anderen Entwickler (1 Approval)
+6. **Merge** in `main`
 
-Die einfachste Methode - startet alle Services zusammen mit Hot-Reload:
+### Testing
 
-```bash
-# 1. Umgebungsvariablen kopieren
-cp dev/.env.example dev/.env
+Aktuell sind noch keine automatisierten Tests in den mobilen Apps eingerichtet. Qualitätssicherung erfolgt über:
 
-# 2. Optional: dev/.env anpassen (Ports, Secrets, etc.)
+- `npm run lint` — ESLint
+- `npm run typecheck` — TypeScript (app/)
+- Manuelles Testen auf Gerät/Simulator
 
-# 3. Services starten
-docker compose -f dev/docker-compose.yml up
+### Deployment (EAS)
 
-# Oder im Hintergrund:
-docker compose -f dev/docker-compose.yml up -d
-
-# Logs anzeigen
-docker compose -f dev/docker-compose.yml logs -f
-
-# Services stoppen
-docker compose -f dev/docker-compose.yml down
-```
-
-**Verfügbare Services:**
-- **Gateway (nginx):** http://localhost:80
-- **Frontend:** http://localhost:3001
-- **API über Gateway:** http://localhost:80/api/v1
-- **Orders/Kitchen über Gateway:** http://localhost:80/api/v1/orders, http://localhost:80/api/v1/kitchen
-- **Database:** localhost:5432 (PostgreSQL)
-
-**Features:**
-- ✅ Hot-Reload für Backend und Frontend
-- ✅ Source-Code wird per Volume gemountet
-- ✅ PostgreSQL mit persistent storage
-- ✅ Gemeinsames Docker-Netzwerk
-- ✅ Health-Checks für alle Services
-
-**Hinweis:** Im Microservice-Stack ist Auth im `core`-Service. Für PIN-Login ist dort `tenant_slug` erforderlich.
-
-#### Option B: Einzelne Services
-
-Für mehr Kontrolle können Services auch einzeln gestartet werden:
+Die Apps werden manuell über das `eas-deploy.sh` Script deployed:
 
 ```bash
-# Aus dem Root-Verzeichnis:
-# API-Basis für fast alle Flows: Core + Orders + DB + Redis + Gateway
-docker compose -f dev/docker-compose.yml up -d postgres redis core orders nginx
+# Restaurant-App deployen (intern/TestFlight)
+./scripts/eas-deploy.sh restaurant-app
 
-# Frontend zusätzlich
-docker compose -f dev/docker-compose.yml up -d frontend
+# Gäste-App deployen
+./scripts/eas-deploy.sh app
 
-# Optional bei Bedarf
-docker compose -f dev/docker-compose.yml up -d ai notifications notifications-worker
+# Mit Optionen
+./scripts/eas-deploy.sh restaurant-app --platform all --channel production
+./scripts/eas-deploy.sh app --platform ios --channel internal
+./scripts/eas-deploy.sh app --skip-check  # Fingerprint-Check überspringen
 ```
+
+**Das Script erkennt automatisch**, ob ein voller Build nötig ist oder ein OTA-Update reicht:
+
+1. Berechnet den nativen Fingerprint (`@expo/fingerprint`)
+2. Vergleicht mit dem letzten Build-Fingerprint (`.last-build-fingerprint`)
+3. **Fingerprint gleich** → EAS Update (OTA, schnell, kein Store-Review)
+4. **Fingerprint unterschiedlich** → EAS Build + Submit (neuer nativer Build)
+
+**EAS-Profile:**
+
+| Profil | Zweck | Distribution |
+|--------|-------|-------------|
+| `development` | Lokale Entwicklung | Simulator/Dev-Client |
+| `internal` | Internes Testing | TestFlight / Internal |
+| `production` | App Store Release | App Store / Google Play |
+
+**Kein CI/CD** für die Apps — Deployment erfolgt manuell vom Entwickler-Rechner.
 
 ---
 
-## Git Submodules Workflow
+## Bereichsübergreifende Entwicklung
 
-### Submodules aktualisieren
+Viele Features erfordern Änderungen in mehreren Arbeitsbereichen gleichzeitig (z.B. ein neuer API-Endpunkt + Frontend-Anbindung + App-Integration).
+
+### Workflow: Feature über mehrere Bereiche
+
+**Beispiel:** Neues Feature "Gäste-Feedback" erfordert Backend-API + Dashboard-UI + Gäste-App-Screen.
+
+```
+1. Issue erstellen im Hauptrepo, Milestone zuweisen
+
+2. Backend zuerst (API bereitstellen)
+   cd backend
+   git checkout -b feature/guest-feedback
+   # API-Endpunkte implementieren, Tests schreiben
+   # PR erstellen → Review → Merge
+
+3. Frontends parallel (sobald API steht)
+   cd dashboard
+   git checkout -b feature/guest-feedback
+   # Dashboard-Ansicht implementieren
+   # PR erstellen → Review → Merge
+
+   cd app
+   git checkout -b feature/guest-feedback
+   # App-Screen implementieren
+   # PR erstellen → Review → Merge
+
+4. Hauptrepo aktualisieren
+   git submodule update --remote backend dashboard app
+   git add backend dashboard app
+   git commit -m "chore: update submodules for guest-feedback feature"
+   git push
+```
+
+### Reihenfolge bei Änderungen
+
+| Szenario | Reihenfolge |
+|----------|------------|
+| Neuer API-Endpunkt + UI | Backend → Frontend(s) |
+| Neues DB-Feld + API + UI | Migration → Backend → Frontend(s) |
+| Nur Frontend-Änderung | Frontend direkt (kein Backend nötig) |
+| Nur Backend-Änderung (ohne API-Änderung) | Backend direkt |
+| Schema-Änderung (Enums, Events) | `packages/shared/` → Services → Frontend(s) |
+| Neues Event (Redis Pub/Sub) | `packages/shared/events.py` → Publisher-Service → Subscriber-Service → UI |
+
+### API-Routing beachten
+
+Beim Entwickeln neuer Endpunkte muss das nginx-Routing stimmen:
+
+```
+/api/v1/                    → core:8000       (Default)
+/api/v1/orders/*            → orders:8001
+/api/v1/kitchen/*           → orders:8001
+/api/v1/invoices/*          → orders:8001
+/api/v1/ai/*                → ai:8002
+/api/v1/notifications/*     → notifications:8003
+/webhooks/sumup             → orders:8001
+/webhooks/whatsapp          → notifications:8003
+/ws/*                       → orders:8001     (WebSocket)
+```
+
+Falls ein neuer Service oder ein neuer Routing-Pfad nötig ist, muss `dev/nginx/conf.d/gastropilot.conf` angepasst werden.
+
+### Multi-Tenancy beachten
+
+- Jeder Request trägt `tenant_id` aus dem JWT
+- `TenantMiddleware` setzt `request.state.tenant_id`
+- PostgreSQL RLS erzwingt DB-Isolation
+- Neue Tabellen brauchen `tenant_id`-Spalte + RLS-Policy
+- Platform-Admins (`is_admin=True`) nutzen `session_factory_admin`
+
+### Lokale Entwicklung bereichsübergreifend
+
+**Empfohlenes Setup:** Docker Compose für Backend + nginx, lokale Dev-Server für Frontends:
 
 ```bash
-# Alle Submodules auf den neuesten Stand bringen
-git submodule update --remote --merge
+# Terminal 1: Backend-Stack
+docker compose -f dev/docker-compose.yml up -d postgres redis core orders nginx minio
 
-# Oder nur ein spezifisches Submodule
-git submodule update --remote backend
-git submodule update --remote web
-git submodule update --remote restaurant-app
-git submodule update --remote gastropilot-guest-portal
-git submodule update --remote gastropilot-kds
-git submodule update --remote gastropilot-table-order
+# Terminal 2: Frontend (das du gerade entwickelst)
+cd dashboard && npm run dev
+
+# Terminal 3: Ggf. zweites Frontend
+cd web && npm run dev
+
+# Terminal 4: Ggf. Mobile App
+cd restaurant-app && npx expo start
 ```
 
-### In einem Submodule arbeiten (Feature)
-
-```bash
-cd backend
-
-# Eigenen Branch erstellen
-git checkout -b feature/mein-feature
-
-# Änderungen committen
-git add .
-git commit -m "feat: neue Funktion"
-git push origin feature/mein-feature
-
-# Pull Request im Submodule-Repository erstellen
-```
-### In einem Submodule arbeiten (Bugfix)
-
-```bash
-cd backend
-
-# Eigenen Branch erstellen
-git checkout -b fix/mein-bugfix
-
-# Änderungen committen
-git add .
-git commit -m "fix: bugfix"
-git push origin fix/mein-bugfix
-
-# Pull Request im Submodule-Repository erstellen
-```
-
-### Submodule-Referenz im Hauptrepo aktualisieren
-
-Nach dem Merge eines PR im Submodule:
-
-```bash
-# Im Root-Verzeichnis
-cd backend
-git checkout main
-git pull
-
-cd ..
-git add backend
-git commit -m "chore: update backend submodule"
-git push
-```
-
----
-
-## Entwicklungs-Workflow
-
-### Branch-Konvention
-
-- `main` - Produktionsbereiter Code
-- `feature/*` - Neue Features
-- `fix/*` - Bugfixes
-- `chore/*` - Wartungsarbeiten
-
-### Commit-Konvention
-
-Wir verwenden [Conventional Commits](https://www.conventionalcommits.org/):
-
-```
-<type>(<scope>): <description>
-
-[optional body]
-```
-
-**Types:**
-- `feat` - Neues Feature
-- `fix` - Bugfix
-- `docs` - Dokumentation
-- `style` - Formatierung
-- `refactor` - Code-Refactoring
-- `test` - Tests
-- `chore` - Wartung
-
-**Beispiele:**
-
-```bash
-git commit -m "feat(reservations): add waitlist functionality"
-git commit -m "fix(auth): resolve token refresh issue"
-git commit -m "docs: update API documentation"
-```
-
-### Pull Request Workflow
-
-1. Feature-Branch erstellen
-2. Änderungen committen
-3. PR erstellen gegen `main`
-4. Code Review abwarten
-5. Nach Approval: Merge in `main`
-6. CI/CD deployed automatisch auf Staging
-
----
-
-## Code-Qualität
-
-### Backend
-
-```bash
-cd backend
-
-# Linting
-ruff check .
-
-# Formatierung prüfen
-black --check .
-isort --check-only .
-
-# Automatisch formatieren
-black .
-isort .
-```
-
-### Frontend
-
-```bash
-cd web
-
-# Linting
-npm run lint
-
-# Formatierung prüfen
-npm run format:check
-
-# Automatisch formatieren
-npm run format:write
-
-# Type-Checking
-npm run type-check
-```
-
----
-
-## Testing
-
-### Backend Tests
-
-```bash
-cd backend
-
-# Alle Tests ausführen
-pytest
-
-# Mit Coverage
-pytest --cov=app --cov-report=html
-
-# Spezifische Tests
-pytest tests/test_reservations.py -v
-```
-
-### Frontend Tests
-
-```bash
-cd web
-
-# Unit/Integration Tests
-npm run test
-
-# E2E Tests (Playwright)
-npm run test:e2e
-
-# Tests im Watch-Modus
-npm run test:watch
-```
+So kannst du Frontend-Code mit Hot-Reload entwickeln, während die API über nginx läuft.
 
 ---
 
@@ -494,103 +640,124 @@ npm run test:watch
 
 ### Umgebungen
 
-| Umgebung | URL | Deployment | Server |
-|----------|-----|------------|--------|
-| Development | localhost | `dev/docker-compose.yml` (lokal) | Lokal |
-| Test | test.gpilot.app | Submodule CI / Deploy-Workflow | APP-02 (10.0.3.1) |
-| Staging | staging.gpilot.app | Deploy-Workflow | APP-02 (10.0.3.1) |
-| Demo | demo.gpilot.app | Deploy-Workflow | APP-02 (10.0.3.1) |
-| Production | gpilot.app | Release-Workflow | APP-01 (10.0.1.1) |
+| Umgebung | URL | Server | Trigger |
+|----------|-----|--------|---------|
+| Development | localhost | Lokal | `docker compose up` |
+| Test | test.gpilot.app | APP-02 (10.0.3.1) | Submodule CI (auto) oder Deploy-Workflow |
+| Staging | staging.gpilot.app | APP-02 (10.0.3.1) | Deploy-Workflow (manuell) |
+| Demo | demo.gpilot.app | APP-02 (10.0.3.1) | Deploy-Workflow (manuell) |
+| Production | gpilot.app | APP-01 (10.0.1.1) | Release-Workflow (manuell) |
 
-### CI/CD Workflows
-
-#### Submodule CI/CD (automatisch)
-
-Jedes Submodule hat einen eigenen CI/CD-Workflow (`ci-cd.yml`). Bei Push auf `main` werden Docker Images automatisch mit dem Tag `:test` gebaut. Die Version wird aus `package.json` gelesen.
+### Server-Architektur
 
 ```
-Push auf main (Submodule)
-    |
-GitHub Actions: ci-cd.yml
-    +-- Lint & Build Check
-    +-- Docker Build & Push -> :test Tag
-        +-- Server: docker compose pull && ./update.sh
+APP-01 (10.0.1.1)  — Production
+  /opt/production/
+
+APP-02 (10.0.3.1)  — Non-Production
+  /opt/test/
+  /opt/staging/
+  /opt/demo/
+
+DB-01  (10.0.2.1)  — PostgreSQL Primary + Redis
+DB-02  (10.0.2.2)  — PostgreSQL Replica
+INFRA  (10.0.0.2)  — WireGuard, CoreDNS, Monitoring
 ```
 
-#### Deploy Workflow (Test, Staging, Demo)
+### Deploy-Workflow: Web-Frontend & Backend
 
-Der zentrale **Deploy**-Workflow im Haupt-Repo erstellt automatisch RC-Versionen:
+#### Automatisch (Submodule CI)
 
-1. **Actions** > **Deploy** > **Run workflow**
-2. Wähle:
-   - **Environment:** `test`, `staging`, `demo` oder `all`
-   - **Services:** `all`, `frontend`, `backend` oder einzelner Service (z.B. `dashboard`)
-   - **Ref:** Branch oder Tag (z.B. `main`)
-   - **Version Bump:** `auto` (nächste RC-Nummer) oder `patch`/`minor`/`major` (neuer Zyklus)
+Bei jedem Push auf `main` in einem Submodule (ausser app und restaurant-app):
 
-**Beispiel: Nur Dashboard auf Test deployen:**
-- Environment: `test`, Services: `dashboard`, Bump: `auto`
-- Erstellt: `v0.14.3-rc.1-dashboard`, baut nur das Dashboard-Image
+```
+Push auf main → ci-cd.yml → Lint & Build → Docker Image :test → Server Pull
+```
 
-**Beispiel: Alles auf Staging deployen:**
-- Environment: `staging`, Services: `all`, Bump: `auto`
-- Erstellt: `v0.14.3-rc.2`, baut alle 8 Services
+#### Manuell (Deploy-Workflow)
 
-#### Release Workflow (Production)
+Über **GitHub Actions > Deploy > Run workflow**:
 
-1. **Actions** > **Release** > **Run workflow**
-2. Wähle:
-   - **`promote`** - Aktuelle RC zur Production machen (z.B. `0.14.3-rc.4` -> `0.14.3`)
-   - **`patch`/`minor`/`major`** - Direkter Release (Hotfix ohne RC-Zyklus)
-3. Optional: "Deploy to production" aktivieren
+| Parameter | Optionen | Beschreibung |
+|-----------|----------|-------------|
+| Environment | `test`, `staging`, `demo`, `all` | Ziel-Umgebung |
+| Services | `all`, `frontend`, `backend`, einzelner Service | Was deployen |
+| Ref | Branch/Tag | Code-Basis (default: `main`) |
+| Version Bump | `auto`, `patch`, `minor`, `major` | RC-Version berechnen |
 
-Images werden mit `:v{version}`, `:latest` und `:production` getaggt.
+**Beispiele:**
+
+```
+Dashboard auf Test:     Environment=test, Services=dashboard, Bump=auto
+                        → v0.14.3-rc.1-dashboard
+
+Alles auf Staging:      Environment=staging, Services=all, Bump=auto
+                        → v0.14.3-rc.2 (alle 8 Services gebaut)
+
+Backend auf Demo:       Environment=demo, Services=backend, Bump=auto
+                        → v0.14.3-rc.3
+```
+
+#### Release-Workflow (Production)
+
+Über **GitHub Actions > Release > Run workflow**:
+
+| Release-Typ | Beschreibung |
+|-------------|-------------|
+| `promote` | Aktuelle RC zur Production machen (z.B. `0.14.3-rc.4` → `0.14.3`) |
+| `patch` | Hotfix-Release ohne RC-Zyklus |
+| `minor` | Minor-Release ohne RC-Zyklus |
+| `major` | Major-Release ohne RC-Zyklus |
+
+Optional: "Deploy to production" aktivieren, um direkt auszurollen.
+
+### Deploy-Workflow: Mobile Apps
+
+Die mobilen Apps werden **manuell** über das EAS-Script deployed:
+
+```bash
+# Internes Testing (TestFlight)
+./scripts/eas-deploy.sh restaurant-app --channel internal
+./scripts/eas-deploy.sh app --channel internal
+
+# Production (App Store)
+./scripts/eas-deploy.sh restaurant-app --channel production --platform all
+./scripts/eas-deploy.sh app --channel production --platform all
+```
+
+Kein CI/CD — der zuständige Entwickler führt das Script lokal aus.
 
 ### Docker Image Tags
 
-| Environment | Image Tag | Trigger | Version-Beispiel |
-|-------------|-----------|---------|-----------------|
-| Test | `:test` | Submodule CI oder Deploy-Workflow | `v0.14.3-rc.1-dashboard` |
-| Staging | `:staging` | Deploy-Workflow | `v0.14.3-rc.2` |
-| Demo | `:demo` | Deploy-Workflow | `v0.14.3-rc.2` |
-| Production | `:v0.14.3`, `:latest`, `:production` | Release-Workflow | `v0.14.3` |
+| Umgebung | Tag | Erstellt durch |
+|----------|-----|---------------|
+| Test | `:test` | Submodule CI oder Deploy-Workflow |
+| Staging | `:staging` | Deploy-Workflow |
+| Demo | `:demo` | Deploy-Workflow |
+| Production | `:v{version}`, `:latest`, `:production` | Release-Workflow |
 
-### Manuelles Deployment
+Images werden auf DockerHub gepusht: `servecta/gastropilot-{service}`.
+
+### Manuelles Server-Deployment
 
 ```bash
-# SSH auf Server (via WireGuard + INFRA-SRV Jump-Host)
-ssh app-02      # Test/Staging/Demo
-ssh app-01      # Production
+# SSH (via WireGuard + INFRA Jump-Host)
+ssh app-02    # Test/Staging/Demo
+ssh app-01    # Production
 
-# Zum Environment-Verzeichnis wechseln
-cd /opt/test    # oder /opt/staging, /opt/demo, /opt/production
+# Zum Environment wechseln
+cd /opt/test  # oder /opt/staging, /opt/demo, /opt/production
 
 # Update (Pull + Migration + Restart)
 ./update.sh
 
-# Oder manuell:
+# Oder manuell
 docker compose pull
 docker compose up -d
 docker compose exec core alembic -c alembic.ini upgrade head
 ```
 
-### Server-Architektur
-
-```
-APP-01 (10.0.1.1) - Production
-  /opt/production/
-
-APP-02 (10.0.3.1) - Non-Production
-  /opt/test/        <- gastropilot-test-*
-  /opt/staging/     <- gastropilot-staging-*
-  /opt/demo/        <- gastropilot-demo-*
-
-DB-01  (10.0.2.1) - PostgreSQL Primary + Redis
-DB-02  (10.0.2.2) - PostgreSQL Replica
-INFRA  (10.0.0.2) - WireGuard, CoreDNS, Monitoring
-```
-
-### Hilfs-Skripte (pro Environment)
+**Hilfs-Skripte (pro Environment):**
 
 | Skript | Funktion |
 |--------|----------|
@@ -600,11 +767,11 @@ INFRA  (10.0.0.2) - WireGuard, CoreDNS, Monitoring
 
 ---
 
-## Versioning & Releases
+## Versionierung & Releases
 
-### Versionierungsmodell
+### Versionsmodell
 
-GastroPilot nutzt **Semantic Versioning** mit **Release Candidates** (RC):
+GastroPilot nutzt **Semantic Versioning** mit **Release Candidates**:
 
 ```
 v{MAJOR}.{MINOR}.{PATCH}[-rc.{N}[-{service}]]
@@ -612,27 +779,54 @@ v{MAJOR}.{MINOR}.{PATCH}[-rc.{N}[-{service}]]
 
 | Beispiel | Bedeutung |
 |----------|-----------|
-| `v0.14.2` | Stabile Production-Version |
-| `v0.14.3-rc.1` | Plattform-RC (alle Services, auf Test/Staging) |
-| `v0.14.3-rc.3-dashboard` | Service-RC (nur Dashboard, auf Test) |
-| `v0.15.0-rc.1` | Erster RC fuer naechstes Minor-Release |
+| `v0.14.3` | Stabile Production-Version |
+| `v0.14.3-rc.2` | Plattform-RC (alle Services) |
+| `v0.14.3-rc.1-dashboard` | Service-RC (nur Dashboard) |
+| `v0.15.0-rc.1` | Erster RC für nächstes Minor-Release |
+
+### VERSION-Datei
+
+Die `VERSION`-Datei im Root enthält die aktuelle Plattform-Version:
+- Während RC-Zyklus: `0.15.0-rc.4`
+- Nach Release: `0.15.0`
+
+Wird automatisch durch die Workflows aktualisiert.
 
 ### Typischer Release-Zyklus
 
 ```
 Tag        Aktion                              VERSION            Git-Tag
 ---------- ----------------------------------- ------------------ ----------------------
-Mo 06.04   Dashboard-Fix -> Deploy auf Test    (unv.)             v0.14.3-rc.1-dashboard
-Di 07.04   Core-Bugfix -> Deploy auf Test      (unv.)             v0.14.3-rc.1-core
+Mo 06.04   Dashboard-Fix → Deploy auf Test     (unv.)             v0.14.3-rc.1-dashboard
+Di 07.04   Core-Bugfix → Deploy auf Test       (unv.)             v0.14.3-rc.1-core
 Mi 08.04   Alles auf Staging deployen          0.14.3-rc.1        v0.14.3-rc.1
-Do 09.04   Noch ein Fix -> Staging             0.14.3-rc.2        v0.14.3-rc.2
-Fr 10.04   Promote -> Production               0.14.3             v0.14.3
-Mo 13.04   Neues Feature -> Deploy auf Test    (unv.)             v0.14.4-rc.1-web
+Do 09.04   Noch ein Fix → Staging              0.14.3-rc.2        v0.14.3-rc.2
+Fr 10.04   Promote → Production                0.14.3             v0.14.3
+Mo 13.04   Neues Feature → Deploy auf Test     (unv.)             v0.14.4-rc.1-web
+```
+
+**Ablauf:**
+1. **Einzelne Services testen** — Deploy-Workflow mit einzelnem Service auf `test` (Service-RC, VERSION-Datei bleibt unverändert)
+2. **Plattform auf Staging** — Deploy-Workflow mit `all` auf `staging` (Plattform-RC, VERSION wird aktualisiert)
+3. **Auf Staging testen** — Manuelle QA
+4. **Release** — Release-Workflow mit `promote` (RC-Suffix wird entfernt)
+
+### Versions-Skripte
+
+```bash
+# Nächste RC berechnen
+./scripts/bump-rc.sh                     # 0.14.3-rc.1     (Plattform)
+./scripts/bump-rc.sh auto dashboard      # 0.14.3-rc.1-dashboard (Service)
+./scripts/bump-rc.sh minor               # 0.15.0-rc.1     (neuer Minor-Zyklus)
+
+# Aktuelle Version abfragen
+./scripts/version.sh web production      # v0.14.2  (aus package.json)
+./scripts/version.sh core test           # v0.14.3-rc.2 (aus VERSION)
 ```
 
 ### Versionsanzeige im Frontend
 
-Alle 4 Frontends (Web, Dashboard, KDS, Table-Order) zeigen die Version im Footer:
+Alle Web-Frontends zeigen die Version im Footer:
 
 ```
 Test:       v0.14.3-rc.2-test (20260405-143025)
@@ -640,158 +834,90 @@ Staging:    v0.14.3-rc.3-staging (20260409-091500)
 Production: v0.14.3-prod (20260410-120000)
 ```
 
-### Versions-Skripte
+Build-Variablen `NEXT_PUBLIC_APP_VERSION` und `NEXT_PUBLIC_BUILD_DATE` werden im CI gesetzt.
 
-| Skript | Funktion |
-|--------|----------|
-| `scripts/bump-rc.sh [bump] [service]` | Berechnet naechste RC-Version aus Git-Tags |
-| `scripts/version.sh <component> [env]` | Gibt aktuelle Version fuer eine Komponente aus |
+### Mobile App Versionierung
 
-```bash
-# Beispiele
-./scripts/bump-rc.sh                     # 0.14.3-rc.1     (Plattform)
-./scripts/bump-rc.sh auto dashboard      # 0.14.3-rc.1-dashboard (Service)
-./scripts/bump-rc.sh minor               # 0.15.0-rc.1     (neuer Minor-Zyklus)
+Die mobilen Apps haben eigene Versionierung über EAS:
+- `appVersionSource: remote` — EAS verwaltet Build-Nummern
+- `autoIncrement: true` — Build-Nummer wird automatisch hochgezählt
+- Version in `app.json` bzw. `app.config.js` gepflegt
 
-./scripts/version.sh web production      # v0.14.2          (aus package.json)
-./scripts/version.sh core test           # v0.14.3-rc.2     (aus VERSION, falls RC)
-```
+### Milestones
 
-### Release erstellen
+Wir nutzen **GitHub Milestones** zur Release-Planung:
 
-#### A) RC auf Test/Staging deployen
-
-1. **Actions** > **Deploy**
-2. Environment: `test` oder `staging`
-3. Services: `all` oder einzelner Service
-4. Version Bump: `auto`
-
--> Erstellt automatisch die naechste RC-Version und taggt sie.
-
-#### B) RC zur Production promoten
-
-1. **Actions** > **Release**
-2. Release-Typ: **`promote`**
-3. Deploy to Production: `true`
-
--> Entfernt den RC-Suffix (z.B. `0.14.3-rc.4` -> `0.14.3`) und baut alle Images.
-
-#### C) Hotfix (direkt ohne RC)
-
-1. **Actions** > **Release**
-2. Release-Typ: **`patch`**
-3. Deploy to Production: `true`
-
--> Erstellt direkt einen neuen Patch-Release ohne vorherigen RC-Zyklus.
-
-### VERSION-Datei
-
-Die `VERSION`-Datei im Root-Verzeichnis enthaelt die aktuelle Version:
-
-- **Stabile Version:** `0.14.2` (Production)
-- **RC-Version:** `0.14.3-rc.2` (waehrend eines RC-Zyklus)
-
-Die VERSION-Datei wird automatisch durch die Workflows aktualisiert.
-
----
-
-## Milestones
-
-Wir verwenden **GitHub Milestones** zur Planung und Verfolgung von Releases. Jeder Milestone repraesentiert eine geplante Version.
-
-### Milestone-Workflow
-
-1. **Milestone erstellen** (GitHub > Issues > Milestones > New milestone)
-   - Name: Version (z.B. `v0.15.0`)
-   - Beschreibung: Ziele und Fokus des Releases
-   - Due Date: Geplantes Release-Datum (optional)
-
-2. **Issues zuweisen**
-   - Jedes Issue/PR sollte einem Milestone zugewiesen werden
-   - Labels verwenden: `priority:high`, `priority:medium`, `priority:low`
-
-3. **Fortschritt verfolgen**
-   - GitHub zeigt automatisch den Fortschritt (offene vs. geschlossene Issues)
-
-4. **Release ausloesen**
-   - Wenn alle Issues eines Milestones geschlossen sind
-   - RC auf Test/Staging deployen und testen
-   - Release-Workflow mit "promote" starten
-   - Milestone schliessen
-
-### Issues mit Milestones verknuepfen
+1. **Milestone erstellen** mit Versionsname (z.B. `v0.15.0`) und optionalem Datum
+2. **Issues zuweisen** mit Priority-Labels (`priority:high`, `priority:medium`, `priority:low`)
+3. **Fortschritt verfolgen** über GitHub Milestone-Ansicht
+4. **Release auslösen** wenn alle Issues geschlossen sind
 
 ```bash
 # Issue mit Milestone erstellen
-gh issue create --title "Bug: Login fehlerhaft" --milestone "v0.15.0"
+gh issue create --title "feat: Gäste-Feedback" --milestone "v0.15.0"
 
-# Bestehendes Issue zuweisen
-gh issue edit 123 --milestone "v0.15.0"
-
-# PR mit Milestone erstellen
-gh pr create --title "fix: Login-Bug beheben" --milestone "v0.15.0"
+# PR mit Milestone verknüpfen
+gh pr create --title "feat(dashboard): feedback-ansicht" --milestone "v0.15.0"
 ```
 
 ---
 
 ## Hilfreiche Befehle
 
-### Git & Submodules
+### Docker Compose
 
 ```bash
-# Alle Submodules aktualisieren
-git submodule update --remote --merge
-```
-
-### Docker Development Environment
-
-```bash
-# Komplette Dev-Umgebung starten
-docker compose -f dev/docker-compose.yml up -d
-
-# Logs anzeigen
-docker compose -f dev/docker-compose.yml logs -f
-
-# Logs fuer einzelnen Service
-docker compose -f dev/docker-compose.yml logs -f core
-
-# Services stoppen
-docker compose -f dev/docker-compose.yml down
-
-# Services stoppen + Datenbank zuruecksetzen
-docker compose -f dev/docker-compose.yml down -v
+docker compose -f dev/docker-compose.yml up -d              # Alles starten
+docker compose -f dev/docker-compose.yml up -d postgres redis core orders nginx  # Minimal-Backend
+docker compose -f dev/docker-compose.yml logs -f core        # Logs folgen
+docker compose -f dev/docker-compose.yml down                # Stoppen
+docker compose -f dev/docker-compose.yml down -v             # Stoppen + DB zurücksetzen
+docker compose -f dev/docker-compose.yml restart core        # Service neustarten
 ```
 
 ### Datenbank
 
 ```bash
-# Migration
+# Migration ausführen
 docker compose -f dev/docker-compose.yml exec core alembic upgrade head
+
+# Migration erstellen
+cd backend/services/core && alembic revision --autogenerate -m "beschreibung"
 
 # PostgreSQL CLI
 docker compose -f dev/docker-compose.yml exec postgres psql -U gastropilot -d gastropilot
 ```
 
-### Mobile App
+### Git Submodules
 
 ```bash
-cd restaurant-app && npx expo start
+git submodule update --init --recursive     # Initialisieren
+git submodule update --remote --merge       # Alle aktualisieren
+git submodule update --remote backend       # Einzelnes aktualisieren
 ```
 
 ---
 
 ## Troubleshooting
 
-### Submodule-Probleme
+### Submodule zeigt falschen Commit
 
 ```bash
+# Submodule auf den im Hauptrepo referenzierten Commit zurücksetzen
+git submodule update --init
+
+# Oder komplett neu initialisieren
 git submodule deinit -f .
 git submodule update --init --recursive
 ```
 
-### Docker-Probleme
+### Docker: Service startet nicht
 
 ```bash
+# Logs prüfen
+docker compose -f dev/docker-compose.yml logs core
+
+# Komplett neu bauen
 docker compose -f dev/docker-compose.yml down -v
 docker compose -f dev/docker-compose.yml build --no-cache
 docker compose -f dev/docker-compose.yml up -d
@@ -804,13 +930,20 @@ lsof -i :8000
 kill -9 <PID>
 ```
 
----
+### Datenbank zurücksetzen
 
-## Kontakt & Support
+```bash
+docker compose -f dev/docker-compose.yml down -v
+docker compose -f dev/docker-compose.yml up -d
+# Warten bis postgres hochgefahren ist, dann:
+docker compose -f dev/docker-compose.yml exec core alembic upgrade head
+```
 
-- **GitHub Issues:** Bugs und Feature Requests
-- **Slack:** Team-Kommunikation
-- **SECURITY.md:** Sicherheitsluecken melden
+### Frontend: API nicht erreichbar
+
+- Prüfen ob nginx läuft: `docker compose -f dev/docker-compose.yml ps nginx`
+- Prüfen ob `NEXT_PUBLIC_API_BASE_URL=http://localhost:80` in `.env.local` gesetzt ist
+- Browser-Console auf CORS-Fehler prüfen
 
 ---
 
