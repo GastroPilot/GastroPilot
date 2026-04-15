@@ -236,6 +236,7 @@ services:
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - upload_data:/data/uploads:ro
     depends_on:
       - core
       - orders
@@ -417,3 +418,5 @@ volumes:
     name: gastropilot-dev-redis-data
   minio_data:
     name: gastropilot-dev-minio-data
+  upload_data:
+    name: gastropilot-dev-upload-data
