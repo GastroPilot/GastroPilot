@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.17.0] - 2026-04-17
+
+### Changes
+- Update install.sh (11a2acd)
+- Update docker-compose.yml (d307e02)
+- Update docker-compose.yml (6343899)
+- Configure uploads location with Minio fallback (f7faa1d)
+- bezahlsystem überarbeitet und belege hinzugefügt (07d1ccc)
 ## [0.16.0] - 2026-04-14
 
 ### Changes
