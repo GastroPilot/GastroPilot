@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.18.0] - 2026-04-17
+
+### Changes
+- feat: Gast-Einladungen zu Reservierungen (app, backend, dashboard, restaurant-app, web) (0c2d1fe)
+- docs: rewrite CLAUDE.md as German /weiter workflow guide (356f775)
+
 ## [0.17.0] - 2026-04-17
 
 ### Changes
