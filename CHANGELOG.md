@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.19.0] - 2026-04-17
+
+### Changes
+- docs: rewrite CLAUDE.md as German /weiter workflow guide (356f775)
+- Bump version from 0.16.0-rc.1 to 0.18.0 (b3a36da)
+- added guest invites (0c2d1fe)
 ## [0.18.0] - 2026-04-17
 
 ### Changes
