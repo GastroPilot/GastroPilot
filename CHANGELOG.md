@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.18.1] - 2026-04-17
+
+### Changes
+- Remove version 0.19.0 from CHANGELOG.md (4019a6d)
+- Update VERSION (13658ea)
 ## [0.18.0] - 2026-04-17
 
 ### Changes
