@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.18.1] - 2026-04-17
+
+### Changes
+- Remove version 0.19.0 from CHANGELOG.md (4019a6d)
+- Update VERSION (13658ea)
+## [0.18.0] - 2026-04-17
+
+### Changes
+- feat: Gast-Einladungen zu Reservierungen (app, backend, dashboard, restaurant-app, web) (0c2d1fe)
+- docs: rewrite CLAUDE.md as German /weiter workflow guide (356f775)
+
+## [0.17.0] - 2026-04-17
+
+### Changes
+- Update install.sh (11a2acd)
+- Update docker-compose.yml (d307e02)
+- Update docker-compose.yml (6343899)
+- Configure uploads location with Minio fallback (f7faa1d)
+- bezahlsystem überarbeitet und belege hinzugefügt (07d1ccc)
+## [0.16.0] - 2026-04-14
+
+### Changes
 ## [0.14.2] - 2026-04-04
 
 ### Changes
