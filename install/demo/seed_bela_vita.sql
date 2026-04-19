@@ -106,58 +106,39 @@ INSERT INTO users (id, tenant_id, email, password_hash, first_name, last_name, r
 -- ============================================================================
 
 INSERT INTO areas (id, tenant_id, name, created_at) VALUES
-    ('bbbbbbbb-0001-0001-0001-bbbbbbbbbbbb', '22222222-2222-2222-2222-222222222222', 'Innen',    NOW()),
-    ('bbbbbbbb-0002-0002-0002-bbbbbbbbbbbb', '22222222-2222-2222-2222-222222222222', 'Terrasse', NOW()),
-    ('bbbbbbbb-0003-0003-0003-bbbbbbbbbbbb', '22222222-2222-2222-2222-222222222222', 'Bar',      NOW()),
-    ('bbbbbbbb-0004-0004-0004-bbbbbbbbbbbb', '22222222-2222-2222-2222-222222222222', 'Privat',   NOW());
+    ('bbbbbbbb-0001-0001-0001-bbbbbbbbbbbb', '22222222-2222-2222-2222-222222222222', 'Innenbereich', NOW()),
+    ('bbbbbbbb-0002-0002-0002-bbbbbbbbbbbb', '22222222-2222-2222-2222-222222222222', 'Terrasse', NOW());
 
 -- ============================================================================
--- 5. Tische (28 Stueck in 4 Zonen)
+-- 5. Tische (15 Stueck in 2 Zonen)
 -- ============================================================================
 
--- Zone: Innen (14 Tische)
-INSERT INTO tables (id, tenant_id, area_id, number, capacity, position_x, position_y, is_active, is_outdoor, created_at, updated_at) VALUES
-    -- 2er-Tische T1-T4
-    ('cccccccc-0001-0001-0001-cccccccccccc', '22222222-2222-2222-2222-222222222222', 'bbbbbbbb-0001-0001-0001-bbbbbbbbbbbb', 'T1',  2, 100, 100, true, false, NOW(), NOW()),
-    ('cccccccc-0002-0002-0002-cccccccccccc', '22222222-2222-2222-2222-222222222222', 'bbbbbbbb-0001-0001-0001-bbbbbbbbbbbb', 'T2',  2, 200, 100, true, false, NOW(), NOW()),
-    ('cccccccc-0003-0003-0003-cccccccccccc', '22222222-2222-2222-2222-222222222222', 'bbbbbbbb-0001-0001-0001-bbbbbbbbbbbb', 'T3',  2, 300, 100, true, false, NOW(), NOW()),
-    ('cccccccc-0004-0004-0004-cccccccccccc', '22222222-2222-2222-2222-222222222222', 'bbbbbbbb-0001-0001-0001-bbbbbbbbbbbb', 'T4',  2, 400, 100, true, false, NOW(), NOW()),
-    -- 4er-Tische T5-T8
-    ('cccccccc-0005-0005-0005-cccccccccccc', '22222222-2222-2222-2222-222222222222', 'bbbbbbbb-0001-0001-0001-bbbbbbbbbbbb', 'T5',  4, 100, 250, true, false, NOW(), NOW()),
-    ('cccccccc-0006-0006-0006-cccccccccccc', '22222222-2222-2222-2222-222222222222', 'bbbbbbbb-0001-0001-0001-bbbbbbbbbbbb', 'T6',  4, 200, 250, true, false, NOW(), NOW()),
-    ('cccccccc-0007-0007-0007-cccccccccccc', '22222222-2222-2222-2222-222222222222', 'bbbbbbbb-0001-0001-0001-bbbbbbbbbbbb', 'T7',  4, 300, 250, true, false, NOW(), NOW()),
-    ('cccccccc-0008-0008-0008-cccccccccccc', '22222222-2222-2222-2222-222222222222', 'bbbbbbbb-0001-0001-0001-bbbbbbbbbbbb', 'T8',  4, 400, 250, true, false, NOW(), NOW()),
-    -- 6er-Tische T9-T12
-    ('cccccccc-0009-0009-0009-cccccccccccc', '22222222-2222-2222-2222-222222222222', 'bbbbbbbb-0001-0001-0001-bbbbbbbbbbbb', 'T9',  6, 100, 400, true, false, NOW(), NOW()),
-    ('cccccccc-0010-0010-0010-cccccccccccc', '22222222-2222-2222-2222-222222222222', 'bbbbbbbb-0001-0001-0001-bbbbbbbbbbbb', 'T10', 6, 200, 400, true, false, NOW(), NOW()),
-    ('cccccccc-0011-0011-0011-cccccccccccc', '22222222-2222-2222-2222-222222222222', 'bbbbbbbb-0001-0001-0001-bbbbbbbbbbbb', 'T11', 6, 300, 400, true, false, NOW(), NOW()),
-    ('cccccccc-0012-0012-0012-cccccccccccc', '22222222-2222-2222-2222-222222222222', 'bbbbbbbb-0001-0001-0001-bbbbbbbbbbbb', 'T12', 6, 400, 400, true, false, NOW(), NOW()),
-    -- 8er-Tische T13-T14
-    ('cccccccc-0013-0013-0013-cccccccccccc', '22222222-2222-2222-2222-222222222222', 'bbbbbbbb-0001-0001-0001-bbbbbbbbbbbb', 'T13', 8, 150, 550, true, false, NOW(), NOW()),
-    ('cccccccc-0014-0014-0014-cccccccccccc', '22222222-2222-2222-2222-222222222222', 'bbbbbbbb-0001-0001-0001-bbbbbbbbbbbb', 'T14', 8, 350, 550, true, false, NOW(), NOW());
+-- Innenbereich (9 Tische)
+INSERT INTO tables (
+    id, tenant_id, area_id, number, capacity, position_x, position_y,
+    width, height, shape, rotation, is_active, is_outdoor, created_at, updated_at
+) VALUES
+    ('cccccccc-0001-0001-0001-cccccccccccc', '22222222-2222-2222-2222-222222222222', 'bbbbbbbb-0001-0001-0001-bbbbbbbbbbbb', 'Stammtisch', 6, 953, 271, 162, 114, 'rectangle',  38,   true, false, NOW(), NOW()),
+    ('cccccccc-0002-0002-0002-cccccccccccc', '22222222-2222-2222-2222-222222222222', 'bbbbbbbb-0001-0001-0001-bbbbbbbbbbbb', 'Tisch 1',    4, 335,  71, 143, 120, 'rectangle',   0,   true, false, NOW(), NOW()),
+    ('cccccccc-0003-0003-0003-cccccccccccc', '22222222-2222-2222-2222-222222222222', 'bbbbbbbb-0001-0001-0001-bbbbbbbbbbbb', 'Tisch 2',    4, 527,  71, 148, 120, 'rectangle', -360,  true, false, NOW(), NOW()),
+    ('cccccccc-0004-0004-0004-cccccccccccc', '22222222-2222-2222-2222-222222222222', 'bbbbbbbb-0001-0001-0001-bbbbbbbbbbbb', 'Tisch 3',    4, 335, 214, 143, 129, 'rectangle',   0,   true, false, NOW(), NOW()),
+    ('cccccccc-0005-0005-0005-cccccccccccc', '22222222-2222-2222-2222-222222222222', 'bbbbbbbb-0001-0001-0001-bbbbbbbbbbbb', 'Tisch 4',    4, 527, 214, 148, 129, 'rectangle',   0,   true, false, NOW(), NOW()),
+    ('cccccccc-0006-0006-0006-cccccccccccc', '22222222-2222-2222-2222-222222222222', 'bbbbbbbb-0001-0001-0001-bbbbbbbbbbbb', 'Tisch 5',    4, 740,  71, 155, 120, 'rectangle', -720,  true, false, NOW(), NOW()),
+    ('cccccccc-0007-0007-0007-cccccccccccc', '22222222-2222-2222-2222-222222222222', 'bbbbbbbb-0001-0001-0001-bbbbbbbbbbbb', 'Tisch 6',    4, 740, 214, 155, 114, 'rectangle',   0,   true, false, NOW(), NOW()),
+    ('cccccccc-0008-0008-0008-cccccccccccc', '22222222-2222-2222-2222-222222222222', 'bbbbbbbb-0001-0001-0001-bbbbbbbbbbbb', 'Tisch 7',    4, 953,  71, 162, 120, 'rectangle',   0,   true, false, NOW(), NOW()),
+    ('cccccccc-0009-0009-0009-cccccccccccc', '22222222-2222-2222-2222-222222222222', 'bbbbbbbb-0001-0001-0001-bbbbbbbbbbbb', 'Tisch 8',    4, 740, 385, 155, 121, 'rectangle',   0,   true, false, NOW(), NOW());
 
--- Zone: Terrasse (8 Tische)
-INSERT INTO tables (id, tenant_id, area_id, number, capacity, position_x, position_y, is_active, is_outdoor, created_at, updated_at) VALUES
-    ('cccccccc-0015-0015-0015-cccccccccccc', '22222222-2222-2222-2222-222222222222', 'bbbbbbbb-0002-0002-0002-bbbbbbbbbbbb', 'TA1', 2, 600, 100, true, true, NOW(), NOW()),
-    ('cccccccc-0016-0016-0016-cccccccccccc', '22222222-2222-2222-2222-222222222222', 'bbbbbbbb-0002-0002-0002-bbbbbbbbbbbb', 'TA2', 2, 700, 100, true, true, NOW(), NOW()),
-    ('cccccccc-0017-0017-0017-cccccccccccc', '22222222-2222-2222-2222-222222222222', 'bbbbbbbb-0002-0002-0002-bbbbbbbbbbbb', 'TA3', 2, 800, 100, true, true, NOW(), NOW()),
-    ('cccccccc-0018-0018-0018-cccccccccccc', '22222222-2222-2222-2222-222222222222', 'bbbbbbbb-0002-0002-0002-bbbbbbbbbbbb', 'TA4', 2, 900, 100, true, true, NOW(), NOW()),
-    ('cccccccc-0019-0019-0019-cccccccccccc', '22222222-2222-2222-2222-222222222222', 'bbbbbbbb-0002-0002-0002-bbbbbbbbbbbb', 'TA5', 4, 600, 250, true, true, NOW(), NOW()),
-    ('cccccccc-0020-0020-0020-cccccccccccc', '22222222-2222-2222-2222-222222222222', 'bbbbbbbb-0002-0002-0002-bbbbbbbbbbbb', 'TA6', 4, 700, 250, true, true, NOW(), NOW()),
-    ('cccccccc-0021-0021-0021-cccccccccccc', '22222222-2222-2222-2222-222222222222', 'bbbbbbbb-0002-0002-0002-bbbbbbbbbbbb', 'TA7', 4, 800, 250, true, true, NOW(), NOW()),
-    ('cccccccc-0022-0022-0022-cccccccccccc', '22222222-2222-2222-2222-222222222222', 'bbbbbbbb-0002-0002-0002-bbbbbbbbbbbb', 'TA8', 4, 900, 250, true, true, NOW(), NOW());
-
--- Zone: Bar (4 Tische)
-INSERT INTO tables (id, tenant_id, area_id, number, capacity, position_x, position_y, is_active, is_outdoor, created_at, updated_at) VALUES
-    ('cccccccc-0023-0023-0023-cccccccccccc', '22222222-2222-2222-2222-222222222222', 'bbbbbbbb-0003-0003-0003-bbbbbbbbbbbb', 'B1', 2, 100, 700, true, false, NOW(), NOW()),
-    ('cccccccc-0024-0024-0024-cccccccccccc', '22222222-2222-2222-2222-222222222222', 'bbbbbbbb-0003-0003-0003-bbbbbbbbbbbb', 'B2', 2, 200, 700, true, false, NOW(), NOW()),
-    ('cccccccc-0025-0025-0025-cccccccccccc', '22222222-2222-2222-2222-222222222222', 'bbbbbbbb-0003-0003-0003-bbbbbbbbbbbb', 'B3', 2, 300, 700, true, false, NOW(), NOW()),
-    ('cccccccc-0026-0026-0026-cccccccccccc', '22222222-2222-2222-2222-222222222222', 'bbbbbbbb-0003-0003-0003-bbbbbbbbbbbb', 'B4', 2, 400, 700, true, false, NOW(), NOW());
-
--- Zone: Privat (2 Tische)
-INSERT INTO tables (id, tenant_id, area_id, number, capacity, position_x, position_y, is_active, is_outdoor, created_at, updated_at) VALUES
-    ('cccccccc-0027-0027-0027-cccccccccccc', '22222222-2222-2222-2222-222222222222', 'bbbbbbbb-0004-0004-0004-bbbbbbbbbbbb', 'P1', 10, 650, 500, true, false, NOW(), NOW()),
-    ('cccccccc-0028-0028-0028-cccccccccccc', '22222222-2222-2222-2222-222222222222', 'bbbbbbbb-0004-0004-0004-bbbbbbbbbbbb', 'P2', 12, 800, 500, true, false, NOW(), NOW());
+-- Terrasse (6 Tische)
+INSERT INTO tables (
+    id, tenant_id, area_id, number, capacity, position_x, position_y,
+    width, height, shape, rotation, is_active, is_outdoor, created_at, updated_at
+) VALUES
+    ('cccccccc-0010-0010-0010-cccccccccccc', '22222222-2222-2222-2222-222222222222', 'bbbbbbbb-0002-0002-0002-bbbbbbbbbbbb', 'Tisch 11', 4,  74,  46, 140, 130, 'rectangle', 0, true, false, NOW(), NOW()),
+    ('cccccccc-0011-0011-0011-cccccccccccc', '22222222-2222-2222-2222-222222222222', 'bbbbbbbb-0002-0002-0002-bbbbbbbbbbbb', 'Tisch 12', 4, 240,  46, 140, 130, 'rectangle', 0, true, false, NOW(), NOW()),
+    ('cccccccc-0012-0012-0012-cccccccccccc', '22222222-2222-2222-2222-222222222222', 'bbbbbbbb-0002-0002-0002-bbbbbbbbbbbb', 'Tisch 13', 4,  74, 221, 140, 130, 'rectangle', 0, true, false, NOW(), NOW()),
+    ('cccccccc-0013-0013-0013-cccccccccccc', '22222222-2222-2222-2222-222222222222', 'bbbbbbbb-0002-0002-0002-bbbbbbbbbbbb', 'Tisch 14', 4, 240, 221, 140, 130, 'rectangle', 0, true, false, NOW(), NOW()),
+    ('cccccccc-0014-0014-0014-cccccccccccc', '22222222-2222-2222-2222-222222222222', 'bbbbbbbb-0002-0002-0002-bbbbbbbbbbbb', 'Tisch 15', 4, 466,  46, 140, 130, 'rectangle', 0, true, false, NOW(), NOW()),
+    ('cccccccc-0015-0015-0015-cccccccccccc', '22222222-2222-2222-2222-222222222222', 'bbbbbbbb-0002-0002-0002-bbbbbbbbbbbb', 'Tisch 16', 4, 466, 221, 140, 130, 'rectangle', 0, true, false, NOW(), NOW());
 
 -- ============================================================================
 -- 6. Speisekarte — Kategorien
