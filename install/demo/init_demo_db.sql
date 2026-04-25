@@ -238,7 +238,6 @@ CREATE TABLE IF NOT EXISTS reservations (
     guest_email VARCHAR(255),
     guest_phone VARCHAR(32),
     confirmation_code VARCHAR(64),
-    special_requests TEXT,
     notes TEXT,
     tags JSONB DEFAULT '[]',
     confirmed_at TIMESTAMPTZ,
