@@ -1,13 +1,5 @@
 # Changelog
 
-## [0.19.0] - 2026-04-26
-
-### Changes
-- chore: bump all submodules to v0.19.0 work (issue #34) (#36) (4e54517)
-- fixed start dev (7ef6071)
-- removed special request and combined to notes (c661e9b)
-- bump kds submodule (64d346a)
-- updated table layout (a4af352)
 ## [0.18.1] - 2026-04-17
 
 ### Changes
