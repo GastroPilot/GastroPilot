@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.19.1] - 2026-04-28
+
+### Changes
+- fix(install): align init.sql + rls.sql with migration 0003 (#57) (943ee09)
 ## [0.19.0] - 2026-04-26
 
 ### Changes
