@@ -536,6 +536,98 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs(entity_type, entity_id);
 
 -- ============================================================
+-- VOUCHERS, UPSELL PACKAGES, PREPAYMENTS
+-- Mirrors backend/services/core/alembic/versions/0003_add_missing_models.py
+-- so fresh installs are complete and do not depend on running migration 0003.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS vouchers (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+    code VARCHAR(64) UNIQUE NOT NULL,
+    name VARCHAR(240),
+    description TEXT,
+    type VARCHAR(32) NOT NULL DEFAULT 'fixed',
+    value FLOAT NOT NULL,
+    valid_from DATE,
+    valid_until DATE,
+    max_uses INTEGER,
+    used_count INTEGER NOT NULL DEFAULT 0,
+    min_order_value FLOAT,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_vouchers_tenant_id ON vouchers(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_vouchers_code ON vouchers(code);
+
+CREATE TABLE IF NOT EXISTS voucher_usage (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    voucher_id UUID NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
+    reservation_id UUID REFERENCES reservations(id) ON DELETE SET NULL,
+    tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+    used_by_email VARCHAR(255),
+    discount_amount FLOAT NOT NULL,
+    used_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_voucher_usage_tenant_id ON voucher_usage(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_voucher_usage_voucher_id ON voucher_usage(voucher_id);
+
+CREATE TABLE IF NOT EXISTS upsell_packages (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+    name VARCHAR(240) NOT NULL,
+    description TEXT,
+    price FLOAT NOT NULL,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    available_from_date DATE,
+    available_until_date DATE,
+    min_party_size INTEGER,
+    max_party_size INTEGER,
+    available_times JSONB,
+    available_weekdays JSONB,
+    image_url VARCHAR(512),
+    display_order INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_upsell_packages_tenant_id ON upsell_packages(tenant_id);
+
+CREATE TABLE IF NOT EXISTS reservation_upsell_packages (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    reservation_id UUID NOT NULL REFERENCES reservations(id) ON DELETE CASCADE,
+    upsell_package_id UUID NOT NULL REFERENCES upsell_packages(id) ON DELETE CASCADE,
+    tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+    price_at_time FLOAT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(reservation_id, upsell_package_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_reservation_upsell_packages_tenant_id ON reservation_upsell_packages(tenant_id);
+
+CREATE TABLE IF NOT EXISTS reservation_prepayments (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    reservation_id UUID NOT NULL REFERENCES reservations(id) ON DELETE CASCADE,
+    tenant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+    amount FLOAT NOT NULL,
+    currency VARCHAR(3) NOT NULL DEFAULT 'EUR',
+    payment_provider VARCHAR(32) NOT NULL,
+    payment_id VARCHAR(128),
+    transaction_id VARCHAR(128),
+    status VARCHAR(32) NOT NULL DEFAULT 'pending',
+    payment_data JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    completed_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_reservation_prepayments_tenant_id ON reservation_prepayments(tenant_id);
+
+-- ============================================================
 -- DEVICES, REVIEWS, GUEST FAVORITES, NOTIFICATIONS (v0.13.0)
 -- ============================================================
 
